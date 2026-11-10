@@ -43,6 +43,8 @@ export default function scan(root: Element | null): number[] {
   const ids: number[] = [...root.querySelectorAll<HTMLElement>('.Post-body .PredictionEmbed[data-id]')].map((el) => Number(el.dataset.id));
 
   root.querySelectorAll<HTMLAnchorElement>('.Post-body a[href*="/predictions/"]').forEach((a) => {
+    // Our own cards (embedded, or attached under the first post) link to themselves.
+    if (a.closest('.PredictionCard, .PredictionEmbed, .PredictionAttached')) return;
     const id = idOf(a);
     const parent = a.parentElement;
     if (id === null || !parent) return;
