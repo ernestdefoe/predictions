@@ -20,7 +20,17 @@ Members call it before it happens. A Flarum 2 extension for predictions about an
 - **A record on profiles:** "18 of 25 called (72%) · Oracle ×2".
 - **A page per prediction** with who picked what, once picks are out in the open.
 
+![A prediction in a post, and one attached under it](https://raw.githubusercontent.com/ernestdefoe/predictions/main/screenshots/discussion.png)
+
+![The season leaderboard](https://raw.githubusercontent.com/ernestdefoe/predictions/main/screenshots/board.png)
+
+![Settled predictions](https://raw.githubusercontent.com/ernestdefoe/predictions/main/screenshots/settled.png)
+
+![Opening a prediction](https://raw.githubusercontent.com/ernestdefoe/predictions/main/screenshots/create.png)
+
 Built on default Flarum's own page structure and CSS variables, so it follows light, dark and themes, and works on phones.
+
+![Dark mode](https://raw.githubusercontent.com/ernestdefoe/predictions/main/screenshots/dark.png)
 
 ## Installation
 
