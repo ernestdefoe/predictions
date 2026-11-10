@@ -975,6 +975,7 @@
   gap: 2px;
   padding: 10px;
   border: 1px solid var(--control-bg);
+  background: var(--body-bg); // the modal body is control-bg: tiles must stand out from it
   border-radius: var(--border-radius);
   color: var(--text-color);
   cursor: pointer;
@@ -1009,6 +1010,13 @@
   font-weight: 400;
 }
 
+.PredictionModal .PredictionModal-options,
+.PredictionModal .PredictionModal-number,
+.PredictionModal .PredictionModal-types,
+.PredictionSettleModal .PredictionSettleModal-options {
+  display: block; // core's .Form-group is a flex row, which squeezes each choice to its content
+}
+
 .PredictionModal-options,
 .PredictionModal-number {
   border: 0;
@@ -1027,8 +1035,10 @@
   gap: 6px;
   margin-bottom: 6px;
 
-  .FormControl {
+  .PredictionModal & .FormControl {
     flex: 1;
+    width: 100%;
+    max-width: none;
     min-width: 0;
   }
 }
@@ -1072,6 +1082,7 @@
   padding: 10px 12px;
   margin-bottom: 6px;
   border: 1px solid var(--control-bg);
+  background: var(--body-bg);
   border-radius: var(--border-radius);
   color: var(--text-color);
   font-weight: 600;
