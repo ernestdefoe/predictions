@@ -1,0 +1,84 @@
+{
+    "name": "ernestdefoe/predictions",
+    "description": "Predictions: members call it before it happens. Multiple choice, yes/no and closest-number predictions with lock times, hidden picks, race-safe settling, hit rates, season leaderboards and an Oracle award.",
+    "keywords": [
+        "flarum",
+        "flarum-extension",
+        "predictions",
+        "pick'em",
+        "leaderboard",
+        "forecast",
+        "game"
+    ],
+    "type": "flarum-extension",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Ernest Defoe",
+            "email": "ernestdefoe@gmail.com"
+        }
+    ],
+    "homepage": "https://github.com/ernestdefoe/predictions",
+    "support": {
+        "issues": "https://github.com/ernestdefoe/predictions/issues",
+        "source": "https://github.com/ernestdefoe/predictions"
+    },
+    "funding": [
+        {
+            "type": "other",
+            "url": "https://buymeacoffee.com/ernestdefoe"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "flarum/core": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "ErnestDefoe\\Predictions\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ErnestDefoe\\Predictions\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "flarum-extension": {
+            "title": "Predictions",
+            "category": "feature",
+            "icon": {
+                "name": "fas fa-wand-magic-sparkles",
+                "backgroundColor": "#6d28d9",
+                "color": "#fff"
+            },
+            "optional-dependencies": [
+                "flarum/tags",
+                "fof/badges"
+            ]
+        }
+    },
+    "require-dev": {
+        "flarum/phpstan": "^2.0",
+        "flarum/testing": "^2.0"
+    },
+    "scripts": {
+        "test": [
+            "@test:integration"
+        ],
+        "test:integration": "phpunit -c tests/phpunit.integration.xml",
+        "test:setup": "@php tests/integration/setup.php",
+        "analyse:phpstan": "phpstan analyse"
+    },
+    "scripts-descriptions": {
+        "test": "Runs all tests.",
+        "test:integration": "Runs all integration tests.",
+        "test:setup": "Sets up a database for use with integration tests. Execute this only once.",
+        "analyse:phpstan": "Run static analysis"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "beta",
+    "prefer-stable": true
+}
