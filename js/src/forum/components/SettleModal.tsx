@@ -2,7 +2,8 @@ import app from 'flarum/forum/app';
 import FormModal, { type IFormModalAttrs } from 'flarum/common/components/FormModal';
 import Button from 'flarum/common/components/Button';
 import type Mithril from 'mithril';
-import { num, optionLabel, settle, t, tx, type Prediction } from '../api';
+import { optionLabel, t, tx, type Prediction } from '../api';
+import { num, settle } from '../data';
 
 /**
  * What happened: the right choice, or the number. Settling an open one also
@@ -38,6 +39,7 @@ export default class SettleModal extends FormModal<IFormModalAttrs & { predictio
           <p className="PredictionSettleModal-question">{p.title}</p>
           {p.status === 'open' && <p className="helpText">{t('settle.early')}</p>}
           {p.status === 'settled' && <p className="helpText">{t('settle.correcting')}</p>}
+          {p.myPick && <p className="helpText">{t('settle.own_pick')}</p>}
 
           {p.type === 'number' ? (
             <div className="Form-group">

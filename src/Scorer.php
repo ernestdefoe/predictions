@@ -36,7 +36,15 @@ class Scorer
                 return null;
             }
 
-            $picks = Pick::query()->where('prediction_id', $prediction->id)->get(['id', 'user_id', 'option_id', 'value']);
+            // 🚨 Whoever settles it can't score from it: otherwise a member could open a
+            // yes/no, pick, settle it their way and farm points all day.
+            $settler = $prediction->settled_by_id;
+            $all = Pick::query()->where('prediction_id', $prediction->id)->get(['id', 'user_id', 'option_id', 'value']);
+            $picks = $all->filter(fn (Pick $pick) => (int) $pick->user_id !== $settler)->values();
+            $own = $all->first(fn (Pick $pick) => (int) $pick->user_id === $settler);
+            if ($own) {
+                Pick::query()->whereKey($own->id)->update(['hit' => null, 'points' => null]);
+            }
 
             if ($prediction->voided_at !== null) {
                 $results = [];
@@ -68,7 +76,7 @@ class Scorer
 
             $userIds = $picks->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
             if ($prediction->season_id) {
-                $this->scores->rebuild($prediction->season_id, $userIds);
+                $this->scores->rebuild($prediction->season_id, $own ? [...$userIds, (int) $own->user_id] : $userIds);
             }
 
             $hits = [];

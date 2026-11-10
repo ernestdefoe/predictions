@@ -85,6 +85,7 @@ ernestdefoe-predictions:
       called_it: You called it!
       missed: Not this time. On to the next one.
       scoring: Settled. Working out the points…
+      settler: You settled this one, so your pick doesn't count.
       voided: This prediction was called off. Nobody gets points for it.
 
     form:
@@ -123,6 +124,7 @@ ernestdefoe-predictions:
       answer: "The answer ({unit})"
       guesses: "{count} guesses, from {min} to {max}."
       early: Settling now also locks picks.
+      own_pick: Your own pick on this one won't count, since you're settling it.
       correcting: Settling again corrects the result. Everyone's points are worked out again.
       submit: Settle and score it
       void: Call it off instead (no points for anyone)
@@ -181,6 +183,7 @@ ernestdefoe-predictions:
       predictions_bad_unit: The unit can be up to 24 characters.
       predictions_bad_tolerance: The range has to be a number, zero or more.
       predictions_bad_discussion: You can only add a prediction to your own discussion.
+      predictions_lock_later: Others have picked, so the lock can only move earlier. A moderator can move it later.
       predictions_has_picks: Someone has already picked, so the choices can't change.
       predictions_slow_down: You've opened a lot of predictions today. Try again tomorrow.
       predictions_not_found: This prediction doesn't exist, or you can't see it.

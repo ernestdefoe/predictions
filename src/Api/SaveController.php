@@ -101,7 +101,13 @@ class SaveController extends Handler
             if (! empty($body['lockNow'])) {
                 $row->lock_at = Carbon::now();
             } elseif (array_key_exists('lockAt', $body) && ! $row->isLocked()) {
-                $row->lock_at = Input::lockAt($body['lockAt']);
+                $lockAt = Input::lockAt($body['lockAt']);
+                // Once others have picked, only a moderator can push the lock later: a creator
+                // could otherwise keep picks open after the game started and pick knowing the score.
+                if ($others > 0 && $lockAt->gt($row->lock_at) && ! $row->canModerate($actor)) {
+                    throw new Refusal('predictions_lock_later');
+                }
+                $row->lock_at = $lockAt;
             }
             if (array_key_exists('discussionId', $body)) {
                 $row->discussion_id = $this->discussion($body['discussionId'], $actor);

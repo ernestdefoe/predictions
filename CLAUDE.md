@@ -8,6 +8,7 @@
 
 - **Picks are judged by `lock_at`, under a row lock** (`Picks::lockRow`: SELECT … FOR UPDATE, then re-check). Never accept a pick based on a copy of the prediction read before the transaction, and never depend on `locked_at` (the scheduler's stamp, used only for the "time to settle" alert).
 - **Settling never scores in the request.** `Settler` writes the answer under the row lock, clears `scored_at` and queues `Job\ScorePrediction`. `Scorer` runs only while `scored_at` is null, under the row lock, and rebuilds every pick result and the touched members' season rows (`Scores::rebuild`) from scratch. `predictions:tick` (every minute) scores anything left unscored. Every step must stay idempotent.
+- 🚨 **Whoever settles a prediction never scores from it** (`Scorer` nulls their pick, `Scores::rebuild` skips it): otherwise a member opens a yes/no, picks, settles it their way and farms points. Once others have picked, only a moderator can move the lock LATER (a creator could reopen picks after kickoff).
 - Points are written with one UPDATE per distinct result, never one per pick. Totals are recounted, never incremented.
 - The leaderboard reads `prediction_scores` only (one query + users). Never sum picks at read time.
 - Notification blueprints carry **no data**, so `sync()` matches the earlier alert and a correction or void takes it back. Their subject (`Prediction`) has the `predictions` API resource and the `predictions` store model: without either, notification lists break.

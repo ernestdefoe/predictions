@@ -267,4 +267,31 @@ class PredictionTest extends TestCase
         }
         $this->assertSame(0, Prediction::query()->count());
     }
+
+    #[Test]
+    public function the_settler_never_scores_from_their_own_prediction()
+    {
+        $p = $this->create(['type' => 'yesno', 'title' => 'Free points?', 'options' => null], 3);
+        $yes = $p['options'][0]['id'];
+        $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $yes]);
+        $this->call('POST', "/api/predictions/{$p['id']}/pick", 4, ['optionId' => $yes]);
+        [, $json] = $this->call('POST', "/api/predictions/{$p['id']}/settle", 3, ['optionId' => $yes]);
+
+        $this->assertNull($json['data']['myPick']['hit']);
+        $this->assertSame(0, Score::query()->where('user_id', 3)->count());
+        $this->assertSame(10, (int) Score::query()->where('user_id', 4)->value('points'));
+        $this->assertSame(0, $this->database()->table('notifications')->where('user_id', 3)->where('type', 'predictionCalled')->count());
+    }
+
+    #[Test]
+    public function once_others_picked_the_creator_can_only_move_the_lock_earlier()
+    {
+        $p = $this->create();
+        $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][0]['id']]);
+
+        [$status, $json] = $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['lockAt' => Carbon::now()->addDays(3)->toIso8601String()]);
+        $this->assertSame('predictions_lock_later', $json['errors'][0]['code']);
+        $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['lockAt' => Carbon::now()->addHours(2)->toIso8601String()])[0]);
+        $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 1, ['lockAt' => Carbon::now()->addDays(3)->toIso8601String()])[0]);
+    }
 }
