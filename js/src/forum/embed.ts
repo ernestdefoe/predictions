@@ -28,36 +28,34 @@ function edge(node: Node | null, step: 'previousSibling' | 'nextSibling'): boole
 
 /**
  * A prediction link on a line of its own becomes the prediction's card, in
- * any editor (it's just a link). Only the link is replaced, inside its
- * paragraph: the post's top-level nodes belong to Mithril's m.trust.
+ * any editor (it's just a link): inside a paragraph, or straight in the post
+ * body (plain-text posts have no paragraphs). The link is swapped for the
+ * card only once the card is loaded, so a slow or refused lookup leaves the
+ * link. A swap keeps the post's node count the same, which Mithril's m.trust
+ * needs to remove the post later; the post's very first node is the one it
+ * keeps a reference to, so a link there stays a link.
  * Returns the ids it embedded, so the discussion's attached list can skip them.
  */
 export default function scan(root: Element | null): number[] {
   if (!root || !app.forum.attribute('predictionsCanView')) return [];
-  const found: Array<[HTMLElement, number]> = [];
-  const ids: number[] = [];
+  const found: Array<[HTMLAnchorElement, number]> = [];
+  // Cards already in from an earlier scan still count as embedded.
+  const ids: number[] = [...root.querySelectorAll<HTMLElement>('.Post-body .PredictionEmbed[data-id]')].map((el) => Number(el.dataset.id));
 
   root.querySelectorAll<HTMLAnchorElement>('.Post-body a[href*="/predictions/"]').forEach((a) => {
     const id = idOf(a);
-    if (id === null) return;
+    const parent = a.parentElement;
+    if (id === null || !parent) return;
+    if (parent.classList.contains('Post-body') && parent.firstChild === a) return;
+    if (!edge(a.previousSibling, 'previousSibling') || !edge(a.nextSibling, 'nextSibling')) return;
     ids.push(id);
     if (a.hasAttribute('data-prediction-embed')) return;
     a.setAttribute('data-prediction-embed', '');
-
-    const parent = a.parentElement;
-    if (!parent || parent.classList.contains('Post-body')) return;
-    if (!edge(a.previousSibling, 'previousSibling') || !edge(a.nextSibling, 'nextSibling')) return;
-
-    const holder = document.createElement('span');
-    holder.className = 'PredictionEmbed';
-    found.push([holder, id]);
-    // The link stays (hidden) until the card is in, so a slow or refused lookup still leaves a link.
-    a.after(holder);
-    a.classList.add('PredictionEmbed-link');
+    found.push([a, id]);
   });
 
   // The card, its styles' data and the request are only loaded by a page that has one.
-  if (found.length) import('./components').then(({ mountCards }) => found.forEach(([holder, id]) => mountCards(holder, [id], 'post')));
+  if (found.length) import('./components').then(({ embedCard }) => found.forEach(([a, id]) => embedCard(a, id)));
 
   return ids;
 }

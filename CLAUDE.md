@@ -16,6 +16,7 @@
 - Hidden picks: option counts, number stats and who-picked are left out on the server while `hide_picks` and the lock hasn't passed (`Prediction::picksVisible`). Someone else's picks list (`filter[user]`) only covers predictions whose picks are already visible.
 - `predictionIds` on a discussion is only on the discussion Show endpoint; `predictionRecord` on a user only on the user Show endpoint. Never add per-item work to list endpoints.
 - Frontend: forum.js only wires things up; everything else is ONE lazy chunk (`components/index.ts`). Two chunks sharing the card make webpack emit a shared chunk `jsDirectory` doesn't publish.
+- A prediction link becomes its card by SWAPPING the link once the card has loaded (`embedCard`): never insert extra nodes into a post body, whose top level belongs to m.trust (it removes by node count). Plain-text posts have no <p>, so links sit straight in `.Post-body`; the post's first node is never swapped.
 - Cards inside posts are separate Mithril roots (`m.mount`, `components/mount.tsx`): a post's subtree retainer would otherwise never redraw them.
 - Mithril has no function components: every component is a class.
 - Composer chip: priority 1 in DiscussionComposer, -5 in ReplyComposer (the reply's title stays first), spaced to match FoF Polls' "Add Poll".

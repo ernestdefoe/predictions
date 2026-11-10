@@ -42,3 +42,15 @@ class Cards extends Component<{ ids: number[]; context: Context; host: Element }
 export function mountCards(host: Element, ids: number[], context: Context): void {
   m.mount(host, { view: () => <Cards ids={ids} context={context} host={host} /> });
 }
+
+/** Swap a prediction link for its card once the card is loaded; a missing one leaves the link. */
+export function embedCard(a: HTMLAnchorElement, id: number): void {
+  lookup(id).then((p) => {
+    if (!p || !a.isConnected) return;
+    const holder = document.createElement('span');
+    holder.className = 'PredictionEmbed';
+    holder.dataset.id = String(id);
+    a.replaceWith(holder);
+    mountCards(holder, [id], 'post');
+  });
+}

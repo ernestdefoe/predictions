@@ -9,4 +9,4 @@ export { default as PredictionsPage, loadCore } from './PredictionsPage';
 export { default as PredictionPage } from './PredictionPage';
 export { default as PredictionModal } from './PredictionModal';
 export { default as SettleModal } from './SettleModal';
-export { mountCards } from './mount';
+export { mountCards, embedCard } from './mount';
