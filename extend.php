@@ -19,15 +19,19 @@ use ErnestDefoe\Predictions\Console\TickCommand;
 use ErnestDefoe\Predictions\Http\PageContent;
 use ErnestDefoe\Predictions\Listener\AttachFromPost;
 use ErnestDefoe\Predictions\Notification;
+use ErnestDefoe\Predictions\Pick;
 use ErnestDefoe\Predictions\Prediction;
+use ErnestDefoe\Predictions\Score;
 use ErnestDefoe\Predictions\Settings;
 use Flarum\Api\Context;
+use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\UserResource;
 use Flarum\Api\Schema;
 use Flarum\Discussion\Event\Deleted as DiscussionDeleted;
 use Flarum\Extend;
 use Flarum\Post\Event\Posted;
+use Flarum\User\Event\Deleted as UserDeleted;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 
 return [
@@ -59,6 +63,15 @@ return [
         ->post('/prediction-seasons', 'predictions.seasons.create', Api\SeasonController::class),
 
     new Extend\ApiResource(Api\PredictionResource::class),
+
+    // The ids of a discussion's own predictions, on the discussion page only (one indexed query
+    // there, none on lists): the first post shows their cards.
+    (new Extend\ApiResource(DiscussionResource::class))
+        ->fields(fn () => [
+            Schema\Arr::make('predictionIds')
+                ->visible(fn ($discussion, Context $context) => $context->showing(DiscussionResource::class) && $context->getActor()->hasPermission(Settings::VIEW))
+                ->get(fn ($discussion) => Prediction::query()->where('discussion_id', $discussion->id)->orderBy('id')->limit(10)->pluck('id')->map(fn ($id) => (int) $id)->all()),
+        ]),
 
     (new Extend\ApiResource(UserResource::class))
         ->fields(Api\UserFields::class),
@@ -92,6 +105,11 @@ return [
         // The foreign key does this too, where the database enforces it (SQLite may not).
         ->listen(DiscussionDeleted::class, function (DiscussionDeleted $event) {
             Prediction::query()->where('discussion_id', $event->discussion->id)->update(['discussion_id' => null]);
+        })
+        ->listen(UserDeleted::class, function (UserDeleted $event) {
+            Pick::query()->where('user_id', $event->user->id)->delete();
+            Score::query()->where('user_id', $event->user->id)->delete();
+            Prediction::query()->where('user_id', $event->user->id)->update(['user_id' => null]);
         }),
 
     (new Extend\Console())

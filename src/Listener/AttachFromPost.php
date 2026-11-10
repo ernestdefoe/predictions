@@ -4,7 +4,6 @@ namespace ErnestDefoe\Predictions\Listener;
 
 use ErnestDefoe\Predictions\Prediction;
 use Flarum\Http\UrlGenerator;
-use Flarum\Post\CommentPost;
 use Flarum\Post\Event\Posted;
 
 /**
@@ -21,7 +20,7 @@ class AttachFromPost
     public function handle(Posted $event): void
     {
         $post = $event->post;
-        if (! $post instanceof CommentPost || $post->number !== 1 || ! $post->discussion_id) {
+        if ($post->number !== 1 || ! $post->discussion_id) {
             return;
         }
 

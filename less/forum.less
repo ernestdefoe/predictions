@@ -1,0 +1,1151 @@
+// Predictions. Every colour comes from Flarum's CSS properties, so the card
+// follows light, dark, the coloured header and themes. The two colours a
+// theme can't lend us (right and wrong) are set here for light and dark.
+
+.PredictionCard,
+.PredictionsPage,
+.PredictionPage,
+.PredictionModal,
+.PredictionSettleModal {
+  --prediction-hit: #15803d;
+  --prediction-hit-bg: rgba(21, 128, 61, 0.12);
+  --prediction-miss: #b91c1c;
+  --prediction-miss-bg: rgba(185, 28, 28, 0.1);
+  --prediction-gold: #b45309;
+
+  [data-theme^='dark'] & {
+    --prediction-hit: #4ade80;
+    --prediction-hit-bg: rgba(74, 222, 128, 0.14);
+    --prediction-miss: #f87171;
+    --prediction-miss-bg: rgba(248, 113, 113, 0.12);
+    --prediction-gold: #fbbf24;
+  }
+}
+
+// ---------------------------------------------------------------- the card
+
+.PredictionCard {
+  position: relative;
+  margin: 0 0 16px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--control-bg);
+  border-radius: calc(var(--border-radius) * 2);
+  background: var(--body-bg);
+  color: var(--text-color);
+  text-align: left;
+  min-width: 0;
+  box-shadow: 0 1px 2px var(--shadow-color);
+
+  &[aria-busy='true'] {
+    opacity: 0.85;
+  }
+}
+
+.PredictionCard-head {
+  padding-right: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.PredictionCard-kind {
+  color: var(--muted-color);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  .icon {
+    color: var(--primary-color);
+    margin-right: 2px;
+  }
+}
+
+.PredictionCard-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--control-bg);
+  color: var(--control-color);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.PredictionCard-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-color);
+}
+
+.PredictionCard-status--open .PredictionCard-dot {
+  background: var(--prediction-hit);
+  box-shadow: 0 0 0 0 var(--prediction-hit);
+  animation: prediction-pulse 2s infinite;
+}
+.PredictionCard-status--locked .PredictionCard-dot {
+  background: var(--prediction-gold);
+}
+.PredictionCard-status--settled .PredictionCard-dot {
+  background: var(--primary-color);
+}
+
+@keyframes prediction-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--prediction-hit-bg);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .PredictionCard-status--open .PredictionCard-dot {
+    animation: none;
+  }
+}
+
+.PredictionCard-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  .Dropdown-toggle {
+    color: var(--muted-color);
+  }
+}
+
+.PredictionCard .PredictionCard-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--heading-color);
+  overflow-wrap: anywhere;
+
+  a,
+  a:hover,
+  a:visited {
+    color: var(--heading-color);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+}
+
+.PredictionCard--in-single .PredictionCard-title {
+  font-size: 22px;
+}
+
+.PredictionCard .PredictionCard-description {
+  margin: 0 0 10px;
+  color: var(--muted-color);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+// ------------------------------------------------------------- the choices
+
+.PredictionOptions {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+
+  > li {
+    min-width: 0;
+  }
+}
+
+.PredictionOptions--yesno {
+  grid-template-columns: 1fr 1fr;
+}
+
+.PredictionCard .PredictionOption {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  overflow: hidden;
+  border: 1px solid var(--control-bg);
+  border-radius: var(--border-radius);
+  background: var(--body-bg);
+  color: var(--text-color);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: default;
+  transition:
+    border-color 0.15s,
+    transform 0.1s;
+
+  &.is-pickable {
+    cursor: pointer;
+    &:hover {
+      border-color: var(--primary-color);
+    }
+    &:active {
+      transform: scale(0.99);
+    }
+  }
+  &:disabled {
+    opacity: 1;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+
+  &.is-mine {
+    border-color: var(--primary-color);
+    box-shadow: inset 0 0 0 1px var(--primary-color);
+  }
+  &.is-correct {
+    border-color: var(--prediction-hit);
+    box-shadow: inset 0 0 0 1px var(--prediction-hit);
+    .PredictionOption-bar {
+      background: var(--prediction-hit-bg);
+    }
+    .icon {
+      color: var(--prediction-hit);
+    }
+  }
+  &.is-wrong {
+    border-color: var(--prediction-miss);
+    .PredictionOption-bar {
+      background: var(--prediction-miss-bg);
+    }
+  }
+}
+
+.PredictionOptions--yesno .PredictionOption {
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 56px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.PredictionOption-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--control-bg);
+  transition: width 0.4s ease;
+  z-index: 0;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.PredictionOption-label,
+.PredictionOption-share {
+  position: relative;
+  z-index: 1;
+}
+
+.PredictionOption-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  .icon {
+    color: var(--primary-color);
+    margin-right: 6px;
+  }
+}
+
+.PredictionOption-share {
+  flex-shrink: 0;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.PredictionOption-count {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-color);
+}
+
+// -------------------------------------------------------------- the number
+
+.PredictionNumber {
+  margin-top: 10px;
+}
+
+.PredictionNumber-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: stretch;
+
+  .Button {
+    flex-shrink: 0;
+  }
+}
+
+.PredictionNumber-field {
+  position: relative;
+  flex: 1 1 160px;
+  min-width: 0;
+  margin: 0;
+
+  .FormControl {
+    width: 100%;
+    font-size: 16px; // no zoom-on-focus on iOS
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.PredictionNumber-unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted-color);
+  pointer-events: none;
+}
+
+.PredictionCard .PredictionNumber-mine,
+.PredictionCard .PredictionNumber-answer {
+  margin: 8px 0 0;
+  color: var(--text-color);
+}
+
+.PredictionNumber-answer strong {
+  font-size: 18px;
+  color: var(--prediction-hit);
+}
+
+.PredictionNumber-off {
+  color: var(--muted-color);
+}
+
+.PredictionHistogram {
+  margin: 12px 0 0;
+}
+
+.PredictionHistogram-bars {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 56px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--control-bg);
+}
+
+.PredictionHistogram-bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 3px 3px 0 0;
+  background: var(--primary-color);
+  opacity: 0.35;
+}
+
+.PredictionHistogram-mark {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+
+  &--answer {
+    background: var(--prediction-hit);
+    width: 3px;
+  }
+  &--mine {
+    background: var(--primary-color);
+  }
+}
+
+.PredictionHistogram-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted-color);
+  font-variant-numeric: tabular-nums;
+
+  span:nth-child(2) {
+    text-align: center;
+  }
+}
+
+.PredictionClosest {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    min-width: 0;
+  }
+  li.is-best .PredictionPerson-name {
+    font-weight: 700;
+  }
+}
+
+.PredictionClosest-value,
+.PredictionWho-value {
+  margin-left: auto;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+
+// Flarum 2 sizes avatars with --size; there are no size classes.
+.PredictionAvatar {
+  --size: 22px;
+  flex-shrink: 0;
+  &--small {
+    --size: 32px;
+  }
+}
+
+// ------------------------------------------------------------ result, foot
+
+.PredictionCard .PredictionResult {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--border-radius);
+  font-weight: 600;
+  color: var(--text-color);
+  background: var(--control-bg);
+
+  &--hit {
+    background: var(--prediction-hit-bg);
+    color: var(--prediction-hit);
+    .icon {
+      margin-right: 4px;
+    }
+  }
+  &--miss,
+  &--void,
+  &--pending {
+    color: var(--muted-color);
+  }
+}
+
+.PredictionPoints {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--prediction-hit-bg);
+  color: var(--prediction-hit);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.PredictionStreak {
+  color: var(--prediction-gold);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.PredictionCard-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted-color);
+
+  > * {
+    min-width: 0;
+  }
+  .icon {
+    margin-right: 3px;
+  }
+}
+
+.PredictionCard .PredictionCard-discussion,
+.PredictionCard .PredictionCard-foot .PredictionPerson {
+  color: var(--muted-color);
+  overflow-wrap: anywhere;
+  &:hover {
+    color: var(--text-color);
+  }
+}
+
+.PredictionCard .PredictionCard-withdraw {
+  margin-left: auto;
+  padding: 0;
+  color: var(--muted-color);
+  font-size: 13px;
+  &:hover {
+    color: var(--prediction-miss);
+  }
+}
+
+.PredictionPerson {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-color);
+  .Avatar {
+    flex-shrink: 0;
+  }
+}
+
+.PredictionPerson-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ------------------------------------------------- in posts and discussions
+
+.PredictionEmbed {
+  display: block;
+  margin: 12px 0;
+  max-width: 640px;
+
+  &:empty {
+    display: none;
+  }
+  .PredictionCard {
+    margin: 0;
+  }
+}
+
+// The link stays until its card is in: a slow or refused lookup leaves a link.
+.PredictionEmbed-link:has(+ .PredictionEmbed:not(:empty)) {
+  display: none;
+}
+
+.PredictionAttached {
+  max-width: 640px;
+  margin-top: 16px;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.Post-body .PredictionCard {
+  font-size: 14px;
+  line-height: 1.5;
+
+  h3.PredictionCard-title {
+    margin-top: 0;
+  }
+  ul,
+  ol {
+    padding-left: 0;
+  }
+}
+
+// ----------------------------------------------------------- the composer
+
+// Core gives every header item margin-right: -4px; the first 4px only pay that back.
+// A reply's title stays first (phones lift it into the top bar), so there we sit after it.
+.ComposerBody-header > li .PredictionComposerButton {
+  margin-right: 15px;
+  vertical-align: middle;
+}
+.ReplyComposer .ComposerBody-header > li .PredictionComposerButton {
+  margin-left: 19px;
+}
+
+.PredictionComposerButton-label {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  border: 1px dotted var(--muted-color);
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--muted-color);
+  font-size: 85%;
+  font-weight: 600;
+  white-space: nowrap;
+
+  .PredictionComposerButton:hover &,
+  .PredictionComposerButton:focus-visible & {
+    border-style: solid;
+    border-color: var(--primary-color);
+    color: var(--control-color);
+  }
+}
+
+// ---------------------------------------------------------------- the page
+
+.PredictionsPage-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+
+  > * {
+    min-width: 0;
+  }
+}
+
+.PredictionsPage .PredictionsPage-title {
+  margin: 0;
+  font-size: 22px;
+  color: var(--heading-color);
+  .icon {
+    color: var(--primary-color);
+  }
+}
+
+.PredictionsPage .PredictionsPage-lead {
+  margin: 4px 0 0;
+  color: var(--muted-color);
+}
+
+.PredictionsPage-new {
+  flex-shrink: 0;
+}
+
+.PredictionsPage-me {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: var(--border-radius);
+  background: var(--control-bg);
+  color: var(--control-color);
+  font-weight: 600;
+
+  .Avatar {
+    flex-shrink: 0;
+  }
+}
+
+.PredictionsPage-meText {
+  min-width: 0;
+}
+
+.PredictionsPage-meRank {
+  margin-left: auto;
+  font-size: 18px;
+  color: var(--heading-color);
+}
+
+.PredictionsPage-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--control-bg);
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.PredictionsPage .PredictionsPage-tab {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted-color);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text-color);
+  }
+  &.is-active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+  }
+}
+
+.PredictionsPage-toolbar,
+.PredictionBoard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+
+  select.FormControl {
+    width: auto;
+    max-width: 100%;
+  }
+}
+
+.PredictionsPage-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--muted-color);
+
+  > .icon {
+    font-size: 28px;
+    color: var(--primary-color);
+    opacity: 0.6;
+  }
+  p {
+    margin: 10px 0 14px;
+  }
+}
+
+.PredictionsPage-more {
+  text-align: center;
+  margin: 8px 0 24px;
+}
+
+// --------------------------------------------------------- the leaderboard
+
+.PredictionBoard-how {
+  color: var(--muted-color);
+  font-size: 13px;
+
+  summary {
+    cursor: pointer;
+    color: var(--control-color);
+    font-weight: 600;
+  }
+  ul {
+    margin: 8px 0 0;
+    padding-left: 18px;
+  }
+}
+
+.PredictionBoard-oracles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 14px;
+  color: var(--text-color);
+  font-weight: 600;
+
+  > .icon {
+    color: var(--prediction-gold);
+  }
+}
+
+.PredictionsPage .PredictionBoard-oracle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-color);
+}
+
+.PredictionBoard-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.PredictionBoard-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) minmax(0, 150px) 44px 76px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--control-bg);
+  color: var(--text-color);
+
+  &.is-me {
+    background: var(--control-bg);
+    border-radius: var(--border-radius);
+  }
+}
+
+.PredictionBoard-rank {
+  font-weight: 700;
+  color: var(--muted-color);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  .icon {
+    margin-right: 4px;
+  }
+  .is-top-1 & {
+    color: #d4a017;
+  }
+  .is-top-2 & {
+    color: #8e9aa6;
+  }
+  .is-top-3 & {
+    color: #b0703a;
+  }
+}
+
+.PredictionsPage .PredictionBoard-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-color);
+  font-weight: 600;
+  .Avatar {
+    flex-shrink: 0;
+  }
+}
+
+.PredictionBoard-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.PredictionBoard-rate {
+  min-width: 0;
+}
+
+.PredictionBoard-rateBar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--control-bg);
+  overflow: hidden;
+
+  > span {
+    display: block;
+    height: 100%;
+    background: var(--prediction-hit);
+  }
+  .is-me & {
+    background: var(--body-bg);
+  }
+}
+
+.PredictionBoard-rateText {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+}
+
+.PredictionBoard-record {
+  font-weight: 400;
+  color: var(--muted-color);
+}
+
+.PredictionBoard-points {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  strong {
+    font-size: 17px;
+    color: var(--heading-color);
+  }
+}
+
+.PredictionBoard-pointsLabel {
+  font-size: 11px;
+  color: var(--muted-color);
+}
+
+.PredictionBoard-gap {
+  text-align: center;
+  color: var(--muted-color);
+  padding: 2px 0;
+}
+
+// ------------------------------------------------------ one prediction page
+
+.PredictionsPage .PredictionPage-back,
+.PredictionPage .PredictionPage-back {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: var(--muted-color);
+  font-weight: 600;
+}
+
+.PredictionPage-hidden {
+  color: var(--muted-color);
+}
+
+.PredictionWho {
+  margin-top: 8px;
+
+  h3 {
+    font-size: 16px;
+    color: var(--heading-color);
+    margin: 0 0 10px;
+  }
+}
+
+.PredictionWho-group {
+  margin-bottom: 14px;
+
+  h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    color: var(--text-color);
+  }
+  &.is-correct h4 {
+    color: var(--prediction-hit);
+  }
+}
+
+.PredictionWho-count {
+  font-weight: 400;
+  color: var(--muted-color);
+}
+
+.PredictionWho-people,
+.PredictionWho-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+}
+
+.PredictionWho-list {
+  display: block;
+  li {
+    display: flex;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--control-bg);
+  }
+  li.is-hit .PredictionPerson-name {
+    font-weight: 700;
+  }
+}
+
+.PredictionWho-nobody {
+  color: var(--muted-color);
+  font-size: 13px;
+  margin: 0;
+}
+
+// --------------------------------------------------------------- the form
+
+.PredictionModal-types {
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px;
+  min-width: 0;
+
+  legend {
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: var(--text-color);
+  }
+}
+
+.PredictionModal-typeRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.PredictionModal .PredictionModal-type {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--control-bg);
+  border-radius: var(--border-radius);
+  color: var(--text-color);
+  cursor: pointer;
+  min-width: 0;
+
+  input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .icon {
+    color: var(--primary-color);
+    font-size: 16px;
+  }
+  &.is-active {
+    border-color: var(--primary-color);
+    box-shadow: inset 0 0 0 1px var(--primary-color);
+  }
+  &:focus-within {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+.PredictionModal-typeName {
+  font-weight: 700;
+}
+
+.PredictionModal-typeHelp {
+  font-size: 12px;
+  color: var(--muted-color);
+  font-weight: 400;
+}
+
+.PredictionModal-options,
+.PredictionModal-number {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+
+  legend {
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: var(--text-color);
+  }
+}
+
+.PredictionModal-option {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+
+  .FormControl {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.PredictionModal-numberRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  label {
+    display: block;
+    font-weight: bold;
+    color: var(--text-color);
+  }
+  .FormControl {
+    margin-top: 4px;
+  }
+}
+
+.PredictionSettleModal-question {
+  font-weight: 700;
+  color: var(--heading-color);
+}
+
+.PredictionSettleModal-options {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+
+  legend {
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: var(--text-color);
+  }
+}
+
+.PredictionSettleModal .PredictionSettleModal-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border: 1px solid var(--control-bg);
+  border-radius: var(--border-radius);
+  color: var(--text-color);
+  font-weight: 600;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+
+  &.is-active {
+    border-color: var(--prediction-hit);
+    background: var(--prediction-hit-bg);
+  }
+}
+
+.PredictionSettleModal-void {
+  display: block;
+  margin: 0 auto;
+  color: var(--muted-color);
+}
+
+// ------------------------------------------------------------ the profile
+
+.UserCard .UserCard-predictions,
+.UserCard .UserCard-predictions:hover {
+  color: inherit;
+}
+
+.UserCard-oracle {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #6d28d9;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+// ----------------------------------------------------------------- phones
+
+@media (max-width: 767px) {
+  .PredictionCard {
+    padding: 14px 14px 12px;
+  }
+  .PredictionsPage-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .PredictionBoard-row {
+    grid-template-columns: 34px minmax(0, 1fr) minmax(0, 92px) 62px;
+    gap: 8px;
+  }
+  .PredictionBoard-streak {
+    display: none;
+  }
+  .PredictionsPage .PredictionsPage-tab {
+    padding: 8px 7px;
+  }
+  .PredictionHistogram-caption {
+    flex-wrap: wrap;
+    span:nth-child(2) {
+      order: 3;
+      flex-basis: 100%;
+    }
+  }
+  .PredictionBoard-record {
+    display: none;
+  }
+  .PredictionModal-typeRow {
+    grid-template-columns: 1fr;
+  }
+  .PredictionModal .PredictionModal-type {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .PredictionModal-typeHelp {
+    margin-left: auto;
+    text-align: right;
+  }
+}
