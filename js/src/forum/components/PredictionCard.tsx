@@ -9,23 +9,8 @@ import Tooltip from 'flarum/common/components/Tooltip';
 import stringToColor from 'flarum/common/utils/stringToColor';
 import type Mithril from 'mithril';
 import SettleModal from './SettleModal';
-import {
-  countdown,
-  num,
-  openForm,
-  optionLabel,
-  percent,
-  pick,
-  predictionUrl,
-  remove,
-  save,
-  t,
-  tx,
-  when,
-  type Option,
-  type Person,
-  type Prediction,
-} from '../api';
+import { openForm, optionLabel, percent, predictionUrl, t, tx, type Option, type Person, type Prediction } from '../api';
+import { countdown, num, pick, remove, save, when } from '../data';
 
 declare const m: Mithril.Static;
 declare const flarum: any;
@@ -353,6 +338,7 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
     if (p.status === 'void') return <p className="PredictionResult PredictionResult--void">{t('card.voided')}</p>;
     if (p.status !== 'settled' || !p.myPick) return null;
     if (!p.scored) return <p className="PredictionResult PredictionResult--pending">{t('card.scoring')}</p>;
+    if (p.myPick.hit === null) return <p className="PredictionResult PredictionResult--void">{t('card.settler')}</p>;
 
     return p.myPick.hit ? (
       <p className="PredictionResult PredictionResult--hit">

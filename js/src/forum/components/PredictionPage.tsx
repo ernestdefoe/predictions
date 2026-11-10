@@ -6,7 +6,8 @@ import Icon from 'flarum/common/components/Icon';
 import type Mithril from 'mithril';
 import PredictionCard, { PersonLink } from './PredictionCard';
 import { PageStructure, IndexSidebar } from './PredictionsPage';
-import { call, lookup, num, optionLabel, t, tx, type MyPick, type Person, type Prediction } from '../api';
+import { optionLabel, t, tx, type MyPick, type Person, type Prediction } from '../api';
+import { call, lookup, num } from '../data';
 
 /** /predictions/:id: one prediction, and who picked what once picks are out in the open. */
 

@@ -2,7 +2,8 @@ import Component from 'flarum/common/Component';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import type Mithril from 'mithril';
 import PredictionCard from './PredictionCard';
-import { lookup, type Prediction } from '../api';
+import { type Prediction } from '../api';
+import { lookup } from '../data';
 
 declare const m: Mithril.Static;
 

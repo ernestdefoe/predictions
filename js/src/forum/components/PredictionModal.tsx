@@ -4,7 +4,8 @@ import Button from 'flarum/common/components/Button';
 import Switch from 'flarum/common/components/Switch';
 import Icon from 'flarum/common/components/Icon';
 import type Mithril from 'mithril';
-import { save, t, tx, type Prediction, type PredictionType } from '../api';
+import { t, tx, type Prediction, type PredictionType } from '../api';
+import { save } from '../data';
 
 /**
  * Open (or edit) a prediction: the question, its kind, the choices, when picks

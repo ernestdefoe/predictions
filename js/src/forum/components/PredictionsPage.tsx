@@ -8,7 +8,8 @@ import Link from 'flarum/common/components/Link';
 import Select from 'flarum/common/components/Select';
 import type Mithril from 'mithril';
 import PredictionCard, { fakeUser } from './PredictionCard';
-import { call, list, num, openForm, percent, t, tx, type Board, type BoardRow, type Prediction } from '../api';
+import { openForm, percent, t, tx, type Board, type BoardRow, type Prediction } from '../api';
+import { call, list, num } from '../data';
 
 /**
  * /predictions: the open ones (soonest lock first), the ones waiting on a
