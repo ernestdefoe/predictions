@@ -5,6 +5,7 @@ namespace ErnestDefoe\Predictions\Api;
 use ErnestDefoe\Predictions\Option;
 use ErnestDefoe\Predictions\Pick;
 use ErnestDefoe\Predictions\Prediction;
+use ErnestDefoe\Predictions\Season;
 use ErnestDefoe\Predictions\Settings;
 use Flarum\Discussion\Discussion;
 use Flarum\Http\SlugManager;
@@ -57,8 +58,11 @@ class Presenter
         $closestUsers = $closestIds->isEmpty() ? collect() : User::query()->whereIn('id', $closestIds)->get()->keyBy('id');
 
         $canPick = $actor->hasPermission(Settings::PICK) && ! $actor->isGuest();
+        // Which seasons are over, once for the page (a settled prediction in one can't be re-settled).
+        $seasonIds = $predictions->pluck('season_id')->filter()->unique()->values();
+        $ended = $seasonIds->isEmpty() ? [] : Season::query()->whereIn('id', $seasonIds)->whereNotNull('ended_at')->pluck('id')->map(fn ($id) => (int) $id)->all();
 
-        return $predictions->map(fn (Prediction $p) => $this->one($p, $actor, $mine->get($p->id), $closestUsers, $canPick))->values()->all();
+        return $predictions->map(fn (Prediction $p) => $this->one($p, $actor, $mine->get($p->id), $closestUsers, $canPick, in_array($p->season_id, $ended, true)))->values()->all();
     }
 
     /** @return array<string, mixed> */
@@ -71,7 +75,7 @@ class Presenter
      * @param Collection<int, User> $closestUsers
      * @return array<string, mixed>
      */
-    private function one(Prediction $p, User $actor, ?Pick $mine, Collection $closestUsers, bool $canPick): array
+    private function one(Prediction $p, User $actor, ?Pick $mine, Collection $closestUsers, bool $canPick, bool $endedSeason): array
     {
         $visible = $p->picksVisible();
         $settled = $p->isSettled();
@@ -111,6 +115,9 @@ class Presenter
             'correctOptionId' => $settled && ! $void ? $p->correct_option_id : null,
             'settledAt' => $p->settled_at?->toIso8601String(),
             'scored' => $p->scored_at !== null,
+            // Null until scored; false when too few picked for it to count on the leaderboard.
+            'counted' => $p->scored_at !== null ? (bool) $p->counted : null,
+            'minPickers' => Prediction::MIN_PICKERS,
             'myPick' => $mine?->toRow(),
             'user' => $p->user ? $this->user($p->user) : null,
             'discussion' => $p->discussion ? $this->discussion($p->discussion) : null,
@@ -120,7 +127,9 @@ class Presenter
                 'pick' => $canPick && ! $p->isLocked() && ! $settled,
                 'edit' => $p->canEdit($actor),
                 'editOptions' => $p->canEditOptions($actor, $others),
-                'settle' => $p->canSettle($actor),
+                'editWording' => $p->canEditWording($actor, $others),
+                'settle' => $p->canSettle($actor, $endedSeason),
+                'void' => $p->canVoid($actor, $endedSeason),
                 'delete' => $p->canDelete($actor, $others),
             ],
         ];

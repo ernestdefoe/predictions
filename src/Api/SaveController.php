@@ -44,8 +44,7 @@ class SaveController extends Handler
             if (! $prediction->canEdit($actor)) {
                 self::deny();
             }
-            $others = Pick::query()->where('prediction_id', $prediction->id)->where('user_id', '<>', $actor->id)->count();
-            $this->update($prediction, $body, $actor, $others);
+            $this->update($prediction, $body, $actor);
 
             return new JsonResponse(['data' => $this->presenter->single($prediction->fresh() ?? $prediction, $actor)]);
         }
@@ -80,22 +79,33 @@ class SaveController extends Handler
     }
 
     /** @param array<string, mixed> $body */
-    private function update(Prediction $prediction, array $body, User $actor, int $others): void
+    private function update(Prediction $prediction, array $body, User $actor): void
     {
-        $prediction->getConnection()->transaction(function () use ($prediction, $body, $actor, $others) {
-            // Re-read under the lock: a pick or a settle may have landed since the check above.
+        $prediction->getConnection()->transaction(function () use ($prediction, $body, $actor) {
+            // Re-read and count under the lock: a pick or a settle may have landed since the check above.
             $row = Prediction::query()->whereKey($prediction->id)->lockForUpdate()->firstOrFail();
             if (! $row->canEdit($actor)) {
                 self::deny();
             }
+            $others = Pick::query()->where('prediction_id', $row->id)->where('user_id', '<>', $actor->id)->count();
 
+            // Once others have picked, the question they answered (and whether picks are hidden)
+            // only changes by a moderator's hand.
+            $frozen = ! $row->canEditWording($actor, $others);
             if (array_key_exists('title', $body)) {
-                $row->title = Input::title($body['title']);
+                $title = Input::title($body['title']);
+                if ($frozen && $title !== $row->title) {
+                    throw new Refusal('predictions_frozen');
+                }
+                $row->title = $title;
             }
             if (array_key_exists('description', $body)) {
                 $row->description = Input::description($body['description']);
             }
             if (array_key_exists('hidePicks', $body) && ! $row->isLocked()) {
+                if ($frozen && (bool) $body['hidePicks'] !== $row->hide_picks) {
+                    throw new Refusal('predictions_frozen');
+                }
                 $row->hide_picks = (bool) $body['hidePicks'];
             }
             if (! empty($body['lockNow'])) {

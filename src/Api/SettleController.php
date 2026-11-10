@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Predictions\Api;
 
+use ErnestDefoe\Predictions\Refusal;
 use ErnestDefoe\Predictions\Settler;
 use Flarum\Http\RequestUtil;
 use Laminas\Diactoros\Response\JsonResponse;
@@ -26,11 +27,14 @@ class SettleController extends Handler
     {
         $actor = RequestUtil::getActor($request);
         $prediction = Find::visible($request, $actor);
-        if (! $prediction->canSettle($actor)) {
+        $body = self::body($request);
+        if ($prediction->inEndedSeason()) {
+            throw new Refusal('predictions_season_over');
+        }
+        if (! (! empty($body['void']) ? $prediction->canVoid($actor) : $prediction->canSettle($actor))) {
             self::deny();
         }
 
-        $body = self::body($request);
         $prediction = $this->settler->settle($prediction, $actor, Input::id($body['optionId'] ?? null), Input::number($body['value'] ?? null), ! empty($body['void']));
 
         return new JsonResponse(['data' => $this->presenter->single($prediction->fresh() ?? $prediction, $actor)]);

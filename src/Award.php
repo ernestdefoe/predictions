@@ -10,6 +10,7 @@ use Flarum\Database\AbstractModel;
  * @property int $user_id
  * @property int $rank
  * @property int $points
+ * @property int|null $group_id
  */
 class Award extends AbstractModel
 {

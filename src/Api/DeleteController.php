@@ -3,6 +3,7 @@
 namespace ErnestDefoe\Predictions\Api;
 
 use ErnestDefoe\Predictions\Pick;
+use ErnestDefoe\Predictions\Prediction;
 use ErnestDefoe\Predictions\Scores;
 use Flarum\Http\RequestUtil;
 use Laminas\Diactoros\Response\EmptyResponse;
@@ -23,12 +24,16 @@ class DeleteController extends Handler
     {
         $actor = RequestUtil::getActor($request);
         $prediction = Find::visible($request, $actor);
-        $others = Pick::query()->where('prediction_id', $prediction->id)->where('user_id', '<>', $actor->id)->count();
-        if (! $prediction->canDelete($actor, $others)) {
-            self::deny();
-        }
 
-        $prediction->getConnection()->transaction(fn () => $this->scores->rebuildFor($prediction));
+        $prediction->getConnection()->transaction(function () use ($prediction, $actor) {
+            // Counted under the lock: a pick landing now must not slip past "nobody else picked".
+            $row = Prediction::query()->whereKey($prediction->id)->lockForUpdate()->firstOrFail();
+            $others = Pick::query()->where('prediction_id', $row->id)->where('user_id', '<>', $actor->id)->count();
+            if (! $row->canDelete($actor, $others)) {
+                self::deny();
+            }
+            $this->scores->rebuildFor($row);
+        });
 
         return new EmptyResponse(204);
     }

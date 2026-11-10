@@ -29,11 +29,17 @@ class PredictionTest extends TestCase
                 ['id' => 3, 'username' => 'dana', 'email' => 'dana@machine.local', 'is_email_confirmed' => 1],
                 ['id' => 4, 'username' => 'lee', 'email' => 'lee@machine.local', 'is_email_confirmed' => 1],
                 ['id' => 5, 'username' => 'sam', 'email' => 'sam@machine.local', 'is_email_confirmed' => 1],
+                ['id' => 6, 'username' => 'riley', 'email' => 'riley@machine.local', 'is_email_confirmed' => 1],
+                ['id' => 7, 'username' => 'jo', 'email' => 'jo@machine.local', 'is_email_confirmed' => 1],
+                ['id' => 8, 'username' => 'mod', 'email' => 'mod@machine.local', 'is_email_confirmed' => 1],
             ],
             'group_user' => [
                 ['user_id' => 3, 'group_id' => Group::MEMBER_ID],
                 ['user_id' => 4, 'group_id' => Group::MEMBER_ID],
                 ['user_id' => 5, 'group_id' => Group::MEMBER_ID],
+                ['user_id' => 6, 'group_id' => Group::MEMBER_ID],
+                ['user_id' => 7, 'group_id' => Group::MEMBER_ID],
+                ['user_id' => 8, 'group_id' => Group::MODERATOR_ID],
             ],
         ]);
     }
@@ -139,8 +145,9 @@ class PredictionTest extends TestCase
         $this->assertSame(1, $this->database()->table('notifications')->where('user_id', 3)->count());
         $this->assertSame(17, (int) Score::query()->where('user_id', 3)->value('points'));
 
-        // A correction moves the alert and the points.
-        $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $b]);
+        // The creator settles once; a correction is a moderator's, and it moves the alert and the points.
+        $this->assertSame(403, $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $b])[0]);
+        $this->assertSame(200, $this->call('POST', "/api/predictions/{$p['id']}/settle", 8, ['optionId' => $b])[0]);
         $this->assertSame(0, (int) Score::query()->where('user_id', 3)->value('points'));
         $this->assertSame(13, (int) Score::query()->where('user_id', 4)->value('points'));
         $this->assertSame(1, $this->database()->table('notifications')->where('user_id', 4)->where('type', 'predictionCalled')->where('is_deleted', 0)->count());
@@ -171,11 +178,15 @@ class PredictionTest extends TestCase
     {
         $p = $this->create(['type' => 'yesno', 'title' => 'Will Flarum 2.1 ship by Dec 15?', 'options' => null]);
         $this->assertSame(['Yes', 'No'], array_column($p['options'], 'label'));
-        $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][0]['id']]);
+        foreach ([3, 4, 5] as $user) {
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['optionId' => $p['options'][0]['id']]);
+        }
         $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
         $this->assertSame(1, Score::query()->where('user_id', 3)->count());
 
-        [, $json] = $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['void' => true]);
+        // Calling it off is a moderator's.
+        $this->assertSame(403, $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['void' => true])[0]);
+        [, $json] = $this->call('POST', "/api/predictions/{$p['id']}/settle", 8, ['void' => true]);
         $this->assertSame('void', $json['data']['status']);
         $this->assertSame(0, Score::query()->where('user_id', 3)->count());
         $this->assertSame(0, $this->database()->table('notifications')->where('user_id', 3)->where('is_deleted', 0)->count());
@@ -209,11 +220,12 @@ class PredictionTest extends TestCase
             $p = $this->create(['title' => "Question for {$winner}"]);
             $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][0]['id']]);
             $this->call('POST', "/api/predictions/{$p['id']}/pick", 4, ['optionId' => $p['options'][$winner === 4 ? 0 : 1]['id']]);
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", 5, ['optionId' => $p['options'][2]['id']]);
             $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
         }
 
         [, $board] = $this->call('GET', '/api/prediction-leaderboard', 3);
-        $this->assertSame(['dana', 'lee'], array_map(fn ($r) => $r['user']['username'], $board['rows']));
+        $this->assertSame(['dana', 'lee', 'sam'], array_map(fn ($r) => $r['user']['username'], $board['rows']));
         $this->assertSame(1, $board['me']['rank']);
         $this->assertSame(1.0, (float) $board['me']['hitRate']);
         $this->assertSame(2, $board['me']['streak']);
@@ -221,7 +233,7 @@ class PredictionTest extends TestCase
         $this->assertSame(403, $this->call('POST', '/api/prediction-seasons', 3, ['name' => 'Bowl season'])[0]);
         [$status, $json] = $this->call('POST', '/api/prediction-seasons', 1, ['name' => 'Bowl season']);
         $this->assertSame(201, $status);
-        $this->assertSame(2, $json['oracles']);
+        $this->assertSame(2, $json['oracles']); // sam scored nothing
 
         [, $board] = $this->call('GET', '/api/prediction-leaderboard', 3);
         $this->assertSame('Bowl season', $board['season']['name']);
@@ -229,7 +241,7 @@ class PredictionTest extends TestCase
         [, $old] = $this->call('GET', '/api/prediction-leaderboard?season=1', 3);
         $this->assertSame('dana', $old['oracles'][0]['user']['username']);
         [, $all] = $this->call('GET', '/api/prediction-leaderboard?season=all', 3);
-        $this->assertSame(2, count($all['rows']));
+        $this->assertSame(3, count($all['rows']));
     }
 
     #[Test]
@@ -248,7 +260,7 @@ class PredictionTest extends TestCase
         $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $options[0]['id']]);
         $this->assertSame('predictions_has_picks', $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['options' => ['C', 'D']])[1]['errors'][0]['code']);
         $this->assertSame(403, $this->call('DELETE', "/api/predictions/{$p['id']}", 2)[0]);
-        $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['title' => 'Who wins it all?'])[0]);
+        $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['description' => 'Decided by the vote.'])[0]);
     }
 
     #[Test]
@@ -273,13 +285,15 @@ class PredictionTest extends TestCase
     {
         $p = $this->create(['type' => 'yesno', 'title' => 'Free points?', 'options' => null], 3);
         $yes = $p['options'][0]['id'];
-        $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $yes]);
-        $this->call('POST', "/api/predictions/{$p['id']}/pick", 4, ['optionId' => $yes]);
+        foreach ([3, 4, 5, 6, 7] as $user) {
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['optionId' => $yes]);
+        }
         [, $json] = $this->call('POST', "/api/predictions/{$p['id']}/settle", 3, ['optionId' => $yes]);
 
         $this->assertNull($json['data']['myPick']['hit']);
         $this->assertSame(0, Score::query()->where('user_id', 3)->count());
         $this->assertSame(10, (int) Score::query()->where('user_id', 4)->value('points'));
+        $this->assertTrue($json['data']['counted']);
         $this->assertSame(0, $this->database()->table('notifications')->where('user_id', 3)->where('type', 'predictionCalled')->count());
     }
 
@@ -293,5 +307,140 @@ class PredictionTest extends TestCase
         $this->assertSame('predictions_lock_later', $json['errors'][0]['code']);
         $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['lockAt' => Carbon::now()->addHours(2)->toIso8601String()])[0]);
         $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 1, ['lockAt' => Carbon::now()->addDays(3)->toIso8601String()])[0]);
+    }
+
+    #[Test]
+    public function too_few_pickers_and_it_does_not_count_so_two_accounts_cannot_farm()
+    {
+        // A opens a number, B guesses, A settles: B "calls it" but scores nothing.
+        $p = $this->create(['type' => 'number', 'title' => 'Two-account number', 'options' => null]);
+        $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['value' => 7]);
+        [, $json] = $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['value' => 7]);
+        $this->assertFalse($json['data']['counted']);
+        // One guess alone is never "closest".
+        $this->assertFalse(Pick::query()->where('user_id', 3)->first()->hit);
+        $this->assertSame(0, Score::query()->count());
+
+        // Same with a yes/no and two pickers.
+        $q = $this->create(['type' => 'yesno', 'title' => 'Two-account yes/no', 'options' => null]);
+        foreach ([3, 4] as $user) {
+            $this->call('POST', "/api/predictions/{$q['id']}/pick", $user, ['optionId' => $q['options'][0]['id']]);
+        }
+        $this->call('POST', "/api/predictions/{$q['id']}/settle", 2, ['optionId' => $q['options'][0]['id']]);
+        $this->assertTrue(Pick::query()->where('user_id', 3)->where('prediction_id', $q['id'])->first()->hit);
+        $this->assertNull(Pick::query()->where('user_id', 3)->where('prediction_id', $q['id'])->first()->points);
+        $this->assertSame(0, Score::query()->count());
+    }
+
+    #[Test]
+    public function nothing_is_re_settled_into_an_ended_season()
+    {
+        $p = $this->create();
+        foreach ([3, 4, 5] as $user) {
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['optionId' => $p['options'][0]['id']]);
+        }
+        $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
+        $this->call('POST', '/api/prediction-seasons', 1, ['name' => 'Next']);
+
+        [$status, $json] = $this->call('POST', "/api/predictions/{$p['id']}/settle", 8, ['optionId' => $p['options'][1]['id']]);
+        $this->assertSame('predictions_season_over', $json['errors'][0]['code']);
+        $this->assertSame(422, $status);
+        $this->assertSame(422, $this->call('POST', "/api/predictions/{$p['id']}/settle", 8, ['void' => true])[0]);
+    }
+
+    #[Test]
+    public function deleting_a_discussion_deletes_its_predictions_and_their_points()
+    {
+        $this->prepareDatabase([
+            'discussions' => [['id' => 50, 'title' => 'Private', 'slug' => 'private', 'user_id' => 2, 'created_at' => Carbon::now(), 'comment_count' => 1, 'is_private' => 0]],
+        ]);
+        $p = $this->create(['discussionId' => 50]);
+        foreach ([3, 4, 5] as $user) {
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['optionId' => $p['options'][0]['id']]);
+        }
+        $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
+        $this->assertSame(1, Score::query()->where('user_id', 3)->count());
+
+        $this->assertSame(204, $this->send($this->request('DELETE', '/api/discussions/50', ['authenticatedAs' => 1]))->getStatusCode());
+        $this->assertSame(0, Prediction::query()->count());
+        $this->assertSame(0, Score::query()->count());
+    }
+
+    #[Test]
+    public function the_question_and_hidden_picks_freeze_once_others_have_picked()
+    {
+        $p = $this->create();
+        $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][0]['id']]);
+
+        $this->assertSame('predictions_frozen', $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['title' => 'Who wins it all instead?'])[1]['errors'][0]['code']);
+        $this->assertSame('predictions_frozen', $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['hidePicks' => true])[1]['errors'][0]['code']);
+        // Sending them unchanged (the edit form does) is fine, and so is a moderator's change.
+        $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['title' => 'Who wins the Heisman?', 'description' => 'By the vote.'])[0]);
+        $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 8, ['title' => 'Who wins the 2026 Heisman?'])[0]);
+    }
+
+    #[Test]
+    public function a_creator_who_lost_the_permission_cannot_edit_settle_or_delete()
+    {
+        // Permissions are read once per test process: revoke first, make the prediction directly.
+        $this->database()->table('group_permission')->where('permission', 'predictions.create')->delete();
+        $id = $this->database()->table('predictions')->insertGetId(['user_id' => 2, 'type' => 'choice', 'title' => 'Mine', 'lock_at' => Carbon::now()->addDay(), 'created_at' => Carbon::now(), 'updated_at' => Carbon::now()]);
+        $this->database()->table('prediction_options')->insert([['prediction_id' => $id, 'label' => 'A', 'position' => 0], ['prediction_id' => $id, 'label' => 'B', 'position' => 1]]);
+        $p = ['id' => $id, 'options' => [['id' => (int) $this->database()->table('prediction_options')->where('prediction_id', $id)->min('id')]]];
+
+        $this->assertSame(403, $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['title' => 'Still mine?'])[0]);
+        $this->assertSame(403, $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']])[0]);
+        $this->assertSame(403, $this->call('DELETE', "/api/predictions/{$p['id']}", 2)[0]);
+    }
+
+    #[Test]
+    public function the_oracle_group_only_takes_back_memberships_it_gave()
+    {
+        $this->prepareDatabase([
+            'groups' => [['id' => 10, 'name_singular' => 'Oracle', 'name_plural' => 'Oracles', 'is_hidden' => 0]],
+        ]);
+        // Through the repository: it caches what it read at boot.
+        $settings = $this->app()->getContainer()->make(\Flarum\Settings\SettingsRepositoryInterface::class);
+        $settings->set('ernestdefoe-predictions.oracle_group', '10');
+        $settings->set('ernestdefoe-predictions.oracle_count', '1');
+        // riley was put in the group by an admin.
+        $this->database()->table('group_user')->insert(['user_id' => 6, 'group_id' => 10]);
+
+        $season = function (int $winner) {
+            $p = $this->create(['title' => "Season pick $winner"]);
+            foreach ([3, 4, 5, 6] as $user) {
+                $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['optionId' => $p['options'][$user === $winner ? 0 : 1]['id']]);
+            }
+            $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
+            $this->call('POST', '/api/prediction-seasons', 1, ['name' => "After $winner"]);
+        };
+        $members = fn () => $this->database()->table('group_user')->where('group_id', 10)->orderBy('user_id')->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+
+        $season(3);
+        $this->assertSame([3, 6], $members());
+        $season(6); // riley wins: she was already in it, so it isn't recorded as ours
+        $this->assertSame([6], $members());
+        $season(4);
+        $this->assertSame([4, 6], $members()); // riley stays: an admin put her there
+
+        // A Moderators group is never used.
+        $settings->set('ernestdefoe-predictions.oracle_group', '4');
+        $season(5);
+        $this->assertSame([8], $this->database()->table('group_user')->where('group_id', 4)->pluck('user_id')->map(fn ($id) => (int) $id)->all());
+    }
+
+    #[Test]
+    public function deleting_a_member_recounts_what_they_picked()
+    {
+        $p = $this->create(['type' => 'number', 'title' => 'Guess', 'options' => null]);
+        foreach ([3 => 10, 4 => 20] as $user => $value) {
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['value' => $value]);
+        }
+        $this->assertSame(204, $this->send($this->request('DELETE', '/api/users/4', ['authenticatedAs' => 1]))->getStatusCode());
+
+        $row = Prediction::query()->find($p['id']);
+        $this->assertSame(1, $row->picks_count);
+        $this->assertSame(1, $row->stats['count']);
+        $this->assertSame(10.0, (float) $row->stats['max']);
     }
 }

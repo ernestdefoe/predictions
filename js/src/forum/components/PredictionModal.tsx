@@ -69,6 +69,8 @@ export default class PredictionModal extends FormModal<Attrs> {
     const editing = this.attrs.prediction;
     const optionsLocked = !!editing && !editing.can.editOptions;
     const lockLocked = !!editing && editing.status !== 'open';
+    // Once others have picked, only a moderator changes the question or whether picks are hidden.
+    const wordingLocked = !!editing && !editing.can.editWording;
 
     return (
       <div className="Modal-body">
@@ -80,6 +82,7 @@ export default class PredictionModal extends FormModal<Attrs> {
               className="FormControl"
               maxlength={150}
               required
+              disabled={wordingLocked}
               placeholder={tx('form.question_placeholder')}
               value={this.question}
               oninput={(e: InputEvent) => (this.question = (e.target as HTMLInputElement).value)}
@@ -133,10 +136,10 @@ export default class PredictionModal extends FormModal<Attrs> {
           </div>
 
           <div className="Form-group">
-            <Switch state={this.hidePicks} disabled={lockLocked} onchange={(value: boolean) => (this.hidePicks = value)}>
+            <Switch state={this.hidePicks} disabled={lockLocked || wordingLocked} onchange={(value: boolean) => (this.hidePicks = value)}>
               {t('form.hide_picks')}
             </Switch>
-            <p className="helpText">{t('form.hide_picks_help')}</p>
+            <p className="helpText">{t(wordingLocked ? 'form.wording_locked' : 'form.hide_picks_help')}</p>
           </div>
 
           <div className="Form-group">
@@ -223,8 +226,9 @@ export default class PredictionModal extends FormModal<Attrs> {
     };
     if (!editing || editing.status === 'open') {
       body.lockAt = new Date(this.lockAt).toISOString();
-      body.hidePicks = this.hidePicks;
+      if (!editing || editing.can.editWording) body.hidePicks = this.hidePicks;
     }
+    if (editing && !editing.can.editWording) delete body.title;
     if (!editing || editing.can.editOptions) {
       body.type = this.type;
       if (this.type === 'choice') body.options = this.options;

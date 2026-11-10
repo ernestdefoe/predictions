@@ -37,10 +37,14 @@ return [
             $table->dateTime('voided_at')->nullable();
             // Null until the scoring job has written every pick's result for the current answer.
             $table->dateTime('scored_at')->nullable();
+            // Set by the scoring: false when too few people picked for it to count on the leaderboard.
+            $table->boolean('counted')->nullable();
             $table->timestamps();
 
             $table->foreign('user_id')->references('id')->on('users')->nullOnDelete();
-            $table->foreign('discussion_id')->references('id')->on('discussions')->nullOnDelete();
+            // A prediction in a deleted discussion goes with it: it was only ever as visible as the
+            // discussion, so it must never become a public, standalone one.
+            $table->foreign('discussion_id')->references('id')->on('discussions')->cascadeOnDelete();
             $table->foreign('settled_by_id')->references('id')->on('users')->nullOnDelete();
             $table->foreign('season_id')->references('id')->on('prediction_seasons')->nullOnDelete();
             $table->index(['lock_at', 'locked_at']);
@@ -99,6 +103,9 @@ return [
             $table->unsignedInteger('user_id');
             $table->unsignedSmallInteger('rank');
             $table->unsignedInteger('points');
+            // The Oracle group this award put them in (null when they were already in it, or no group):
+            // the next season takes back only these memberships.
+            $table->unsignedInteger('group_id')->nullable();
 
             $table->unique(['season_id', 'user_id']);
             $table->foreign('season_id')->references('id')->on('prediction_seasons')->cascadeOnDelete();

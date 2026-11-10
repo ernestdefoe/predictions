@@ -18,20 +18,19 @@ use ErnestDefoe\Predictions\Api;
 use ErnestDefoe\Predictions\Console\TickCommand;
 use ErnestDefoe\Predictions\Http\PageContent;
 use ErnestDefoe\Predictions\Listener\AttachFromPost;
+use ErnestDefoe\Predictions\Listener\Cleanup;
 use ErnestDefoe\Predictions\Notification;
-use ErnestDefoe\Predictions\Pick;
 use ErnestDefoe\Predictions\Prediction;
-use ErnestDefoe\Predictions\Score;
 use ErnestDefoe\Predictions\Settings;
 use Flarum\Api\Context;
 use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\UserResource;
 use Flarum\Api\Schema;
-use Flarum\Discussion\Event\Deleted as DiscussionDeleted;
+use Flarum\Discussion\Event\Deleting as DiscussionDeleting;
 use Flarum\Extend;
 use Flarum\Post\Event\Posted;
-use Flarum\User\Event\Deleted as UserDeleted;
+use Flarum\User\Event\Deleting as UserDeleting;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 
 return [
@@ -103,14 +102,8 @@ return [
     (new Extend\Event())
         ->listen(Posted::class, AttachFromPost::class)
         // The foreign key does this too, where the database enforces it (SQLite may not).
-        ->listen(DiscussionDeleted::class, function (DiscussionDeleted $event) {
-            Prediction::query()->where('discussion_id', $event->discussion->id)->update(['discussion_id' => null]);
-        })
-        ->listen(UserDeleted::class, function (UserDeleted $event) {
-            Pick::query()->where('user_id', $event->user->id)->delete();
-            Score::query()->where('user_id', $event->user->id)->delete();
-            Prediction::query()->where('user_id', $event->user->id)->update(['user_id' => null]);
-        }),
+        ->listen(DiscussionDeleting::class, [Cleanup::class, 'discussion'])
+        ->listen(UserDeleting::class, [Cleanup::class, 'user']),
 
     (new Extend\Console())
         ->command(TickCommand::class)

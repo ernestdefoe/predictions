@@ -16,6 +16,8 @@ use Illuminate\Contracts\Container\Container;
  */
 class Seasons
 {
+    public const NEVER_ORACLE_GROUPS = [Group::ADMINISTRATOR_ID, Group::GUEST_ID, Group::MEMBER_ID, Group::MODERATOR_ID];
+
     public function __construct(
         private readonly SettingsRepositoryInterface $settings,
         private readonly ExtensionManager $extensions,
@@ -55,9 +57,10 @@ class Seasons
     }
 
     /**
-     * The Oracle group moves to this season's winners (only people WE put in
-     * it leave it: anyone an admin added by hand stays). The FoF Badges badge
-     * is kept for good, one more each season.
+     * The Oracle group moves to this season's winners. Only memberships this
+     * extension added are ever taken back (each award row records the group it
+     * put the member in): someone an admin put in the group by hand stays. Admins,
+     * Moderators, Members and Guests are never an Oracle group.
      *
      * @param list<int> $oracles
      */
@@ -66,14 +69,27 @@ class Seasons
         $users = User::query()->whereIn('id', $oracles ?: [0])->get();
 
         $groupId = (int) $this->settings->get(Settings::ORACLE_GROUP);
-        if ($groupId && ! in_array($groupId, [Group::ADMINISTRATOR_ID, Group::GUEST_ID, Group::MEMBER_ID], true) && Group::query()->whereKey($groupId)->exists()) {
-            $previous = Award::query()->where('season_id', '<>', $season->id)->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->all();
-            $leaving = array_values(array_diff($previous, $oracles));
+        $group = in_array($groupId, self::NEVER_ORACLE_GROUPS, true) ? null : Group::query()->find($groupId);
+        if ($group) {
+            // Memberships we gave in earlier seasons.
+            $ours = Award::query()->where('season_id', '<>', $season->id)->where('group_id', $group->id)->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->all();
+
+            $leaving = array_values(array_diff($ours, $oracles));
             if ($leaving) {
-                Group::query()->find($groupId)?->users()->detach($leaving);
+                $group->users()->detach($leaving);
+                Award::query()->where('group_id', $group->id)->whereIn('user_id', $leaving)->update(['group_id' => null]);
             }
+
+            $members = $group->users()->whereIn('users.id', $oracles ?: [0])->pluck('users.id')->map(fn ($id) => (int) $id)->all();
             foreach ($users as $user) {
-                $user->groups()->syncWithoutDetaching([$groupId]);
+                $already = in_array((int) $user->id, $members, true);
+                if (! $already) {
+                    $group->users()->attach($user->id);
+                }
+                // Ours if we add them now, or we added them before and they stay; not if an admin did.
+                if (! $already || in_array((int) $user->id, $ours, true)) {
+                    Award::query()->where('season_id', $season->id)->where('user_id', $user->id)->update(['group_id' => $group->id]);
+                }
             }
         }
 

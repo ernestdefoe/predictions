@@ -55,12 +55,15 @@ export interface Prediction {
   correctOptionId: number | null;
   settledAt: string | null;
   scored: boolean;
+  /** Null until scored; false when too few picked for it to count on the leaderboard. */
+  counted: boolean | null;
+  minPickers: number;
   myPick: MyPick | null;
   user: Person | null;
   discussion: { id: number; title: string; slug: string } | null;
   url: string;
   createdAt: string;
-  can: { pick: boolean; edit: boolean; editOptions: boolean; settle: boolean; delete: boolean };
+  can: { pick: boolean; edit: boolean; editOptions: boolean; editWording: boolean; settle: boolean; void: boolean; delete: boolean };
 }
 
 export interface BoardRow {

@@ -5,11 +5,11 @@ import SeasonPanel from './SeasonPanel';
 const t = (key: string) => app.translator.trans(`ernestdefoe-predictions.admin.${key}`, {}, true);
 const setting = (key: string) => `ernestdefoe-predictions.${key}`;
 
-/** Groups an Oracle can be put in: not Admin, Guest or Member. */
+/** Groups an Oracle can be put in: not Admin, Guest, Member or Moderator (Seasons::NEVER_ORACLE_GROUPS). */
 function groupOptions(): Record<string, string> {
   const options: Record<string, string> = { '': String(t('settings.oracle_group_none')) };
   for (const group of app.store.all<any>('groups')) {
-    if (['1', '2', '3'].includes(group.id())) continue;
+    if (['1', '2', '3', '4'].includes(group.id())) continue;
     options[group.id()] = group.namePlural();
   }
   return options;

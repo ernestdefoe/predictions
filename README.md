@@ -9,9 +9,10 @@ Members call it before it happens. A Flarum 2 extension for predictions about an
 - **Three kinds of prediction.** Multiple choice (2 to 12 choices), yes or no, and **closest number**, where the nearest guess wins.
 - **A lock time.** Pick, change your pick or take it back until the lock; then picks close. The countdown is on every card.
 - **Hidden picks, if the creator wants.** Nobody sees how others picked, or the totals, until it locks. No following the crowd.
-- **Settling.** The creator or a moderator says what happened (settling early also locks picks). Settling again corrects it, and everyone's points follow. A prediction can be called off: nobody gets points.
+- **Settling.** The creator says what happened (settling early also locks picks). A moderator can correct it, and everyone's points follow, or call it off: nobody gets points. Results in a season that has ended don't change.
 - **"You called it!"** Everyone who picked gets a notification with how they did.
 - **Bold calls pay more.** A right call is worth 10 points, plus up to 10 more the fewer people saw it coming (an admin can switch the bonus off). For a number, the closest guess scores 20; with a "within ±" range set, every other guess that close scores 5 to 10.
+- **Fair play.** A prediction counts toward the leaderboard once 3 people besides whoever settles it have picked, and whoever settles it never scores from it. Once others have picked, only a moderator can change the question, hide the picks or push the lock later.
 - **A /predictions page** with Open, Waiting on a result, Settled and Leaderboard tabs, filters for the ones you picked or made, and your season so far: "Season 1: 7 of 10 called (70%) · 🔥 3 in a row · #4".
 - **A season leaderboard** ranked by points, with hit rates, records and streaks, past seasons and all-time.
 - **Oracles.** When an admin ends a season, its top predictors (3 by default) become Oracles: a badge through FoF Badges, if it's installed, and/or a group of your choice. The group moves to each new season's Oracles; the badge is kept for good.
@@ -46,7 +47,7 @@ php flarum cache:clear
 | Open predictions | Members |
 | Settle, edit and delete any prediction | Moderators |
 
-The creator can always edit their prediction while it's open, settle it, and delete it while nobody else has picked.
+The creator can edit their prediction while it's open, settle it once, and delete it while nobody else has picked, as long as they may still open predictions (a suspended member can't).
 
 ## How it stays right
 

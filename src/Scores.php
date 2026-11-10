@@ -20,6 +20,7 @@ class Scores
                 ->whereNotNull('predictions.settled_at')
                 ->whereNull('predictions.voided_at')
                 ->whereNotNull('predictions.scored_at')
+                ->where('predictions.counted', true)
                 // The settler's own pick never counts (Scorer).
                 ->where(fn ($q) => $q->whereNull('predictions.settled_by_id')->orWhereColumn('prediction_picks.user_id', '<>', 'predictions.settled_by_id'))
                 ->whereIn('prediction_picks.user_id', $chunk)

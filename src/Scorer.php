@@ -46,6 +46,10 @@ class Scorer
                 Pick::query()->whereKey($own->id)->update(['hit' => null, 'points' => null]);
             }
 
+            // 🚨 Too few pickers and it doesn't count: otherwise two accounts farm points (A opens,
+            // B picks, A settles). Who called it is still shown; the points are not given.
+            $counted = $prediction->voided_at === null && $picks->count() >= Prediction::MIN_PICKERS;
+
             if ($prediction->voided_at !== null) {
                 $results = [];
                 Pick::query()->where('prediction_id', $prediction->id)->update(['hit' => null, 'points' => null]);
@@ -57,12 +61,12 @@ class Scorer
                 // One UPDATE per distinct result, not one per pick: at most 21 statements however many picked.
                 $groups = [];
                 foreach ($results as $id => $r) {
-                    $groups[($r['hit'] ? 1 : 0).':'.$r['points']][] = $id;
+                    $groups[($r['hit'] ? 1 : 0).':'.($counted ? $r['points'] : '')][] = $id;
                 }
                 foreach ($groups as $key => $ids) {
                     [$hit, $points] = explode(':', $key);
                     foreach (array_chunk($ids, 500) as $chunk) {
-                        Pick::query()->whereIn('id', $chunk)->update(['hit' => (bool) $hit, 'points' => (int) $points]);
+                        Pick::query()->whereIn('id', $chunk)->update(['hit' => (bool) $hit, 'points' => $points === '' ? null : (int) $points]);
                     }
                 }
             }
@@ -72,6 +76,7 @@ class Scorer
             }
 
             $prediction->scored_at = Carbon::now();
+            $prediction->counted = $counted;
             $prediction->save();
 
             $userIds = $picks->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->values()->all();

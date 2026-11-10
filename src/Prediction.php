@@ -31,6 +31,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $settled_by_id
  * @property Carbon|null $voided_at
  * @property Carbon|null $scored_at
+ * @property bool|null $counted
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property-read User|null $user
@@ -43,6 +44,9 @@ class Prediction extends AbstractModel
     public const YESNO = 'yesno';
     public const NUMBER = 'number';
     public const TYPES = [self::CHOICE, self::YESNO, self::NUMBER];
+
+    /** Pickers (besides whoever settles it) a prediction needs to count on the leaderboard. */
+    public const MIN_PICKERS = 3;
 
     protected $table = 'predictions';
 
@@ -63,6 +67,7 @@ class Prediction extends AbstractModel
         'settled_at' => 'datetime',
         'voided_at' => 'datetime',
         'scored_at' => 'datetime',
+        'counted' => 'boolean',
     ];
 
     /** @return BelongsTo<User, $this> */
@@ -121,14 +126,37 @@ class Prediction extends AbstractModel
         return $actor->hasPermission(Settings::MODERATE);
     }
 
+    /**
+     * The creator, while they may still open predictions: a suspended member (whose
+     * groups are taken away) or one who lost the permission can't edit, settle or delete.
+     */
     public function isOwner(User $actor): bool
     {
-        return ! $actor->isGuest() && $this->user_id === $actor->id;
+        return ! $actor->isGuest() && $this->user_id === $actor->id && $actor->hasPermission(Settings::CREATE);
     }
 
-    public function canSettle(User $actor): bool
+    /**
+     * The creator settles it once; correcting or voiding it is for moderators,
+     * and nobody re-settles one into a season that has already ended.
+     */
+    public function canSettle(User $actor, ?bool $endedSeason = null): bool
     {
-        return $this->isOwner($actor) || $this->canModerate($actor);
+        if ($endedSeason ?? $this->inEndedSeason()) {
+            return false;
+        }
+
+        return $this->canModerate($actor) || ($this->isOwner($actor) && ! $this->isSettled());
+    }
+
+    public function canVoid(User $actor, ?bool $endedSeason = null): bool
+    {
+        return $this->canModerate($actor) && ! ($endedSeason ?? $this->inEndedSeason());
+    }
+
+    /** Settled into a season that has since ended: its result is history. One query; lists pass it in. */
+    public function inEndedSeason(): bool
+    {
+        return $this->season_id !== null && Season::query()->whereKey($this->season_id)->whereNotNull('ended_at')->exists();
     }
 
     /** Wording and lock time: the creator while it's open, a moderator until it's settled. */
@@ -136,6 +164,12 @@ class Prediction extends AbstractModel
     {
         return ($this->isOwner($actor) && ! $this->isLocked() && ! $this->isSettled())
             || ($this->canModerate($actor) && ! $this->isSettled());
+    }
+
+    /** The question and whether picks are hidden: frozen for the creator once anyone else has picked. */
+    public function canEditWording(User $actor, int $othersPicks): bool
+    {
+        return $this->canEdit($actor) && ($othersPicks === 0 || $this->canModerate($actor));
     }
 
     /** The choices themselves: only before anyone else has picked, so nobody's pick changes under them. */

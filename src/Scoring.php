@@ -9,7 +9,7 @@ namespace ErnestDefoe\Predictions;
  * (the fewer people who saw it coming, the more it's worth): 10 + round(10 x
  * (1 - share of picks on the answer)). Called by everyone = 10; by 1 in 10 = 19.
  *
- * Number: the closest guess (ties included) always calls it, for 20. With a
+ * Number: the closest guess (ties included) calls it, for 20, once two or more people guessed. With a
  * "within" range set, every other guess inside it is a hit too, for 5 to 10
  * on a sliding scale. Everything else is a miss for 0.
  */
@@ -51,7 +51,8 @@ final class Scoring
             $errors[$id] = $value === null ? INF : abs($value - $answer);
         }
 
-        $best = $errors ? min($errors) : INF;
+        // "Closest" means something only when at least two people guessed.
+        $best = count(array_filter($valueByPick, fn ($v) => $v !== null)) >= 2 ? min($errors) : INF;
         $out = [];
         foreach ($errors as $id => $error) {
             if ($error !== INF && self::same($error, $best)) {

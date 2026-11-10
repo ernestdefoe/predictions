@@ -140,7 +140,7 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
           {t('card.settle')}
         </Button>
       );
-    if (p.can.settle && (p.status === 'settled' || p.status === 'void'))
+    if ((p.can.settle || p.can.void) && (p.status === 'settled' || p.status === 'void'))
       items.push(
         <Button icon="fas fa-rotate" onclick={() => this.openSettle()}>
           {t('card.correct')}
@@ -336,17 +336,28 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
 
   result(p: Prediction) {
     if (p.status === 'void') return <p className="PredictionResult PredictionResult--void">{t('card.voided')}</p>;
-    if (p.status !== 'settled' || !p.myPick) return null;
+    // Too few pickers: it can be played, but it won't move the leaderboard. Said up front, not after.
+    const uncounted =
+      p.counted === false ? (
+        <p className="PredictionCard-uncounted">{t('card.not_counted', { count: p.minPickers })}</p>
+      ) : p.status !== 'settled' && p.picksCount < p.minPickers ? (
+        <p className="PredictionCard-uncounted">{t('card.needs_pickers', { count: p.minPickers })}</p>
+      ) : null;
+    if (p.status !== 'settled' || !p.myPick) return uncounted;
     if (!p.scored) return <p className="PredictionResult PredictionResult--pending">{t('card.scoring')}</p>;
     if (p.myPick.hit === null) return <p className="PredictionResult PredictionResult--void">{t('card.settler')}</p>;
 
-    return p.myPick.hit ? (
-      <p className="PredictionResult PredictionResult--hit">
-        <Icon name="fas fa-bullseye" /> {t('card.called_it')} <span className="PredictionPoints">+{p.myPick.points}</span>
-      </p>
-    ) : (
-      <p className="PredictionResult PredictionResult--miss">{t('card.missed')}</p>
-    );
+    return [
+      p.myPick.hit ? (
+        <p className="PredictionResult PredictionResult--hit">
+          <Icon name="fas fa-bullseye" /> {t('card.called_it')}
+          {p.myPick.points !== null && <span className="PredictionPoints">+{p.myPick.points}</span>}
+        </p>
+      ) : (
+        <p className="PredictionResult PredictionResult--miss">{t('card.missed')}</p>
+      ),
+      uncounted,
+    ];
   }
 
   footer(p: Prediction, context: string) {

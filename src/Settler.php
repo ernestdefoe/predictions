@@ -4,6 +4,7 @@ namespace ErnestDefoe\Predictions;
 
 use Carbon\Carbon;
 use ErnestDefoe\Predictions\Job\ScorePrediction;
+use Flarum\User\Exception\PermissionDeniedException;
 use Flarum\User\User;
 use Illuminate\Contracts\Queue\Queue;
 
@@ -25,6 +26,13 @@ class Settler
             $row = Prediction::query()->whereKey($prediction->id)->lockForUpdate()->first();
             if (! $row) {
                 throw new Refusal('predictions_gone', 404);
+            }
+            // Checked again under the lock: a creator's double click must not settle it twice.
+            if ($row->inEndedSeason()) {
+                throw new Refusal('predictions_season_over');
+            }
+            if (! ($void ? $row->canVoid($actor) : $row->canSettle($actor))) {
+                throw new PermissionDeniedException();
             }
 
             $row->correct_option_id = null;

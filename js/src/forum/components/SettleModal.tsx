@@ -78,7 +78,7 @@ export default class SettleModal extends FormModal<IFormModalAttrs & { predictio
               {t('settle.submit')}
             </Button>
           </div>
-          {p.status !== 'void' && (
+          {p.status !== 'void' && p.can.void && (
             <Button className="Button Button--link PredictionSettleModal-void" onclick={() => this.submit({ void: true })}>
               {t('settle.void')}
             </Button>
