@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Predictions\Api;
 
+use Closure;
 use ErnestDefoe\Predictions\Prediction;
 use Flarum\Api\Context;
 use Psr\Http\Message\ServerRequestInterface;
@@ -19,7 +20,7 @@ use WeakMap;
  */
 class Cards
 {
-    /** @var WeakMap<ServerRequestInterface, array{queued: array<int, Prediction>, rows: array<int, array<string, mixed>>}> */
+    /** @var WeakMap<ServerRequestInterface, array{queued: array<int, Prediction>, rows: array<int, Card>}> */
     private WeakMap $byRequest;
 
     public function __construct(private readonly Presenter $presenter)
@@ -27,24 +28,27 @@ class Cards
         $this->byRequest = new WeakMap();
     }
 
-    public function value(Prediction $prediction, Context $context, string $key): \Closure
+    /**
+     * A getter for one of the prediction's Card properties, resolved with the whole page.
+     *
+     * @param Closure(Card): mixed $read
+     */
+    public function value(Prediction $prediction, Context $context, Closure $read): Closure
     {
         $request = $context->request;
         ['queued' => $queued, 'rows' => $rows] = $this->byRequest[$request] ?? ['queued' => [], 'rows' => []];
         $queued[$prediction->id] = $prediction;
         $this->byRequest[$request] = ['queued' => $queued, 'rows' => $rows];
 
-        return function () use ($request, $prediction, $context, $key) {
+        return function () use ($request, $prediction, $context, $read) {
             ['queued' => $queued, 'rows' => $rows] = $this->byRequest[$request];
             if (! isset($rows[$prediction->id])) {
                 $pending = array_diff_key($queued, $rows);
-                foreach ($this->presenter->many(collect(array_values($pending)), $context->getActor()) as $row) {
-                    $rows[(int) $row['id']] = $row;
-                }
+                $rows = $this->presenter->many(collect(array_values($pending)), $context->getActor()) + $rows;
                 $this->byRequest[$request] = ['queued' => $queued, 'rows' => $rows];
             }
 
-            return $rows[$prediction->id][$key] ?? null;
+            return isset($rows[$prediction->id]) ? $read($rows[$prediction->id]) : null;
         };
     }
 }

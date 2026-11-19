@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Predictions\Api;
 
+use Closure;
 use ErnestDefoe\Predictions\Editor;
 use ErnestDefoe\Predictions\Picks;
 use ErnestDefoe\Predictions\Prediction;
@@ -154,26 +155,46 @@ class PredictionResource extends AbstractDatabaseResource
             Schema\DateTime::make('lockAt')->property('lock_at')->requiredOnCreate()->writable(),
             Schema\Arr::make('options')->nullable()->writable()
                 ->set(fn (Prediction $prediction, ?array $labels) => $prediction->pendingLabels = $labels === null ? null : Input::options($labels))
-                ->get(fn (Prediction $prediction, Context $context) => $this->cards->value($prediction, $context, 'options')),
+                ->get($this->card(fn (Card $card) => $card->options)),
             Schema\Boolean::make('lockNow')->writableOnUpdate()->visible(false)
                 ->set(fn (Prediction $prediction, bool $now) => $prediction->lockNow = $now),
         ];
     }
 
     /**
-     * What depends on the viewer or on other rows, laid out a page at a time by Cards.
+     * What depends on the viewer or on other rows: the Card's properties, laid out a
+     * page at a time by Cards.
      *
      * @return list<Schema\Attribute>
      */
     private function computed(): array
     {
-        $keys = ['status', 'picksVisible', 'picksCount', 'stats', 'answer', 'correctOptionId', 'settledAt', 'scored', 'counted',
-            'minPickers', 'myPick', 'url', 'createdAt', 'can'];
+        return [
+            Schema\Str::make('status')->get($this->card(fn (Card $card) => $card->status)),
+            Schema\Boolean::make('picksVisible')->get($this->card(fn (Card $card) => $card->picksVisible)),
+            Schema\Integer::make('picksCount')->get($this->card(fn (Card $card) => $card->picksCount)),
+            Schema\Arr::make('stats')->nullable()->get($this->card(fn (Card $card) => $card->stats)),
+            Schema\Number::make('answer')->nullable()->get($this->card(fn (Card $card) => $card->answer)),
+            Schema\Integer::make('correctOptionId')->nullable()->get($this->card(fn (Card $card) => $card->correctOptionId)),
+            Schema\DateTime::make('settledAt')->nullable()->get($this->card(fn (Card $card) => $card->settledAt)),
+            Schema\Boolean::make('scored')->get($this->card(fn (Card $card) => $card->scored)),
+            Schema\Boolean::make('counted')->nullable()->get($this->card(fn (Card $card) => $card->counted)),
+            Schema\Integer::make('minPickers')->get($this->card(fn (Card $card) => $card->minPickers)),
+            Schema\Arr::make('myPick')->nullable()->get($this->card(fn (Card $card) => $card->myPick)),
+            Schema\Str::make('url')->get($this->card(fn (Card $card) => $card->url)),
+            Schema\DateTime::make('createdAt')->property('created_at'),
+            Schema\Arr::make('can')->get($this->card(fn (Card $card) => $card->can)),
+        ];
+    }
 
-        return array_map(
-            fn (string $key) => Schema\Attribute::make($key)->get(fn (Prediction $prediction, Context $context) => $this->cards->value($prediction, $context, $key)),
-            $keys,
-        );
+    /**
+     * A field getter reading the prediction's Card.
+     *
+     * @param Closure(Card): mixed $read
+     */
+    private function card(Closure $read): Closure
+    {
+        return fn (Prediction $prediction, Context $context) => $this->cards->value($prediction, $context, $read);
     }
 
     /** @return list<Schema\Relationship\ToOne> */

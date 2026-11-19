@@ -15,8 +15,8 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 
 /**
- * A prediction's attributes as the browser gets them (PredictionResource reads
- * them through Cards; creator and discussion are the resource's relationships).
+ * Lays out a page of predictions' Cards (PredictionResource reads them through
+ * Cards; creator and discussion are the resource's relationships).
  *
  * 🚨 A fixed number of queries for any number of cards: options are eager
  * loaded, and the viewer's own picks, the "closest guesses" faces and the ended
@@ -36,7 +36,7 @@ class Presenter
 
     /**
      * @param Collection<int, Prediction> $predictions
-     * @return list<array<string, mixed>>
+     * @return array<int, Card> by prediction id
      */
     public function many(Collection $predictions, User $actor): array
     {
@@ -59,35 +59,32 @@ class Presenter
         $ended = $seasonIds->isEmpty() ? [] : Season::query()->whereIn('id', $seasonIds)->whereNotNull('ended_at')->pluck('id')->map(fn ($id) => (int) $id)->all();
         $minPickers = (int) $this->settings->get(Settings::MIN_PICKERS);
 
-        return $predictions->map(fn (Prediction $p) => $this->one($p, $actor, $mine->get($p->id), $closestUsers, in_array($p->season_id, $ended, true)) + ['minPickers' => $minPickers])->values()->all();
+        return $predictions->mapWithKeys(fn (Prediction $p) => [
+            $p->id => $this->one($p, $actor, $mine->get($p->id), $closestUsers, in_array($p->season_id, $ended, true), $minPickers),
+        ])->all();
     }
 
-    /**
-     * @param Collection<int, User> $closestUsers
-     * @return array<string, mixed>
-     */
-    private function one(Prediction $p, User $actor, ?Pick $mine, Collection $closestUsers, bool $endedSeason): array
+    /** @param Collection<int, User> $closestUsers */
+    private function one(Prediction $p, User $actor, ?Pick $mine, Collection $closestUsers, bool $endedSeason, int $minPickers): Card
     {
         $result = $p->isSettled() && $p->voided_at === null;
 
-        return [
-            'id' => $p->id,
-            'status' => $p->status(),
-            'picksVisible' => $p->picksVisible(),
-            'picksCount' => $p->picks_count,
-            'options' => $this->options($p, $result),
-            'stats' => $this->stats($p, $closestUsers),
-            'answer' => $result ? $p->answer_value : null,
-            'correctOptionId' => $result ? $p->correct_option_id : null,
-            'settledAt' => $p->settled_at?->toIso8601String(),
-            'scored' => $p->scored_at !== null,
-            // Null until scored; false when too few picked for it to count on the leaderboard.
-            'counted' => $p->scored_at !== null ? (bool) $p->counted : null,
-            'myPick' => $mine?->toRow(),
-            'url' => $this->url->to('forum')->route('predictions.show', ['id' => $p->id]),
-            'createdAt' => $p->created_at->toIso8601String(),
-            'can' => $this->abilities($p, $actor, $p->picks_count - ($mine ? 1 : 0), $endedSeason),
-        ];
+        return new Card(
+            status: $p->status(),
+            picksVisible: $p->picksVisible(),
+            picksCount: (int) $p->picks_count,
+            options: $this->options($p, $result),
+            stats: $this->stats($p, $closestUsers),
+            answer: $result && $p->answer_value !== null ? (float) $p->answer_value : null,
+            correctOptionId: $result ? $p->correct_option_id : null,
+            settledAt: $p->settled_at,
+            scored: $p->scored_at !== null,
+            counted: $p->scored_at !== null ? (bool) $p->counted : null,
+            minPickers: $minPickers,
+            myPick: $mine?->toRow(),
+            url: $this->url->to('forum')->route('predictions.show', ['id' => $p->id]),
+            can: $this->abilities($p, $actor, $p->picks_count - ($mine ? 1 : 0), $endedSeason),
+        );
     }
 
     /**
@@ -147,7 +144,7 @@ class Presenter
     }
 
     /** @return array{id: int, username: string, displayName: string, slug: string, avatarUrl: string|null} */
-    public function user(User $user): array
+    private function user(User $user): array
     {
         return [
             'id' => (int) $user->id,
