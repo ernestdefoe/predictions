@@ -6,14 +6,12 @@ import Icon from 'flarum/common/components/Icon';
 import type Mithril from 'mithril';
 import PredictionCard, { PersonLink } from './PredictionCard';
 import { PageStructure, IndexSidebar } from './PredictionsPage';
-import { optionLabel, t, tx, type MyPick, type Person, type Prediction } from '../api';
-import { call, lookup, num } from '../data';
+import { optionLabel, t, tx, type MyPick, type Option, type Person, type Prediction } from '../api';
+import { lookup, num, pickers } from '../data';
 
 /** /predictions/:id: one prediction, and who picked what once picks are out in the open. */
 
-declare const m: Mithril.Static;
-
-type PickRow = MyPick & { user: Person; at: string };
+type PickRow = MyPick & { user: Person };
 
 export default class PredictionPage extends Page {
   prediction: Prediction | null = null;
@@ -42,8 +40,8 @@ export default class PredictionPage extends Page {
     const key = p ? `${p.id}:${p.picksVisible}:${p.picksCount}:${p.status}:${p.scored}` : '';
     if (p && p.picksVisible && key !== this.picksFor) {
       this.picksFor = key;
-      call<{ data: PickRow[] }>('GET', `/predictions/${p.id}/picks`).then((res) => {
-        this.picks = res.data;
+      pickers(p.id).then((rows) => {
+        this.picks = rows;
         m.redraw();
       });
     }
@@ -72,51 +70,52 @@ export default class PredictionPage extends Page {
     if (!this.picks) return null;
     if (!this.picks.length) return <p className="PredictionPage-hidden">{t('single.none')}</p>;
 
-    if (p.type === 'number') {
-      const unit = p.unit ? ` ${p.unit}` : '';
-      return (
-        <section className="PredictionWho">
-          <h3>{t('single.who')}</h3>
-          <ol className="PredictionWho-list">
-            {this.picks.map((row) => (
-              <li className={row.hit ? 'is-hit' : ''}>
-                <PersonLink person={row.user} />
-                <span className="PredictionWho-value">{num(row.value) + unit}</span>
-                {row.points ? <span className="PredictionPoints">+{row.points}</span> : null}
-              </li>
-            ))}
-          </ol>
-        </section>
-      );
-    }
-
     return (
       <section className="PredictionWho">
         <h3>{t('single.who')}</h3>
-        {p.options.map((option, i) => {
-          const rows = this.picks!.filter((r) => r.optionId === option.id);
-          return (
-            <div className={'PredictionWho-group' + (option.isCorrect ? ' is-correct' : '')}>
-              <h4>
-                {option.isCorrect && <Icon name="fas fa-circle-check" />} {optionLabel(p, option, i)}{' '}
-                <span className="PredictionWho-count">{tx('card.picks_short', { count: rows.length })}</span>
-              </h4>
-              {rows.length ? (
-                <ul className="PredictionWho-people">
-                  {rows.map((row) => (
-                    <li>
-                      <PersonLink person={row.user} />
-                      {row.points ? <span className="PredictionPoints">+{row.points}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="PredictionWho-nobody">{t('single.nobody')}</p>
-              )}
-            </div>
-          );
-        })}
+        {p.type === 'number' ? this.guesses(p, this.picks) : p.options.map((option, i) => this.group(p, option, i, this.picks!))}
       </section>
+    );
+  }
+
+  /** Every guess, nearest first. */
+  guesses(p: Prediction, picks: PickRow[]) {
+    const unit = p.unit ? ` ${p.unit}` : '';
+    return (
+      <ol className="PredictionWho-list">
+        {picks.map((row) => (
+          <li className={row.hit ? 'is-hit' : ''}>
+            <PersonLink person={row.user} />
+            <span className="PredictionWho-value">{num(row.value) + unit}</span>
+            {row.points ? <span className="PredictionPoints">+{row.points}</span> : null}
+          </li>
+        ))}
+      </ol>
+    );
+  }
+
+  /** One choice and the members who picked it. */
+  group(p: Prediction, option: Option, index: number, picks: PickRow[]) {
+    const rows = picks.filter((r) => r.optionId === option.id);
+    return (
+      <div className={'PredictionWho-group' + (option.isCorrect ? ' is-correct' : '')}>
+        <h4>
+          {option.isCorrect && <Icon name="fas fa-circle-check" />} {optionLabel(p, option, index)}{' '}
+          <span className="PredictionWho-count">{tx('card.picks_short', { count: rows.length })}</span>
+        </h4>
+        {rows.length ? (
+          <ul className="PredictionWho-people">
+            {rows.map((row) => (
+              <li>
+                <PersonLink person={row.user} />
+                {row.points ? <span className="PredictionPoints">+{row.points}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="PredictionWho-nobody">{t('single.nobody')}</p>
+        )}
+      </div>
     );
   }
 }

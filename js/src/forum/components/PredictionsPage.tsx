@@ -17,9 +17,6 @@ import { call, list, num } from '../data';
  * page structure with the forum's own sidebar, so any theme dresses it.
  */
 
-declare const m: Mithril.Static;
-declare const flarum: any;
-
 type Tab = 'open' | 'locked' | 'settled' | 'leaderboard';
 const TABS: Tab[] = ['open', 'locked', 'settled', 'leaderboard'];
 const PAGE = 20;
@@ -73,9 +70,10 @@ export default class PredictionsPage extends Page {
         if (ticket !== this.request) return;
         this.items = offset ? this.items.concat(res.data) : res.data;
         this.more = res.more;
-        this.canCreate = res.meta.canCreate;
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() has already shown the error */
+      })
       .finally(() => {
         if (ticket === this.request) this.loading = false;
         m.redraw();
@@ -84,9 +82,11 @@ export default class PredictionsPage extends Page {
 
   loadBoard() {
     this.boardLoading = true;
-    call<Board>('GET', '/prediction-leaderboard', this.boardSeason ? { season: this.boardSeason } : undefined)
-      .then((board) => (this.board = board))
-      .catch(() => {})
+    call('GET', '/prediction-leaderboard', this.boardSeason ? { season: this.boardSeason.replace(/^s/, '') } : undefined)
+      .then((board: Board) => (this.board = board))
+      .catch(() => {
+        /* call() has already shown the error */
+      })
       .finally(() => {
         this.boardLoading = false;
         m.redraw();
@@ -222,60 +222,82 @@ export default class PredictionsPage extends Page {
 
     return (
       <div className="PredictionBoard">
-        <div className="PredictionBoard-toolbar">
-          <Select
-            aria-label={tx('board.season')}
-            value={this.boardSeason || String(board.season?.id ?? 'all')}
-            options={Object.fromEntries([
-              ...board.seasons.map((s) => [String(s.id), s.endedAt ? s.name : tx('board.current', { name: s.name })]),
-              ['all', tx('board.all_time')],
-            ])}
-            onchange={(value: string) => {
-              this.boardSeason = value;
-              this.loadBoard();
-            }}
-          />
-          <details className="PredictionBoard-how">
-            <summary>{t('board.how')}</summary>
-            <ul>
-              <li>{t(app.forum.attribute('predictionsBoldBonus') ? 'board.how_choice_bold' : 'board.how_choice')}</li>
-              <li>{t('board.how_number')}</li>
-              <li>{t('board.how_rank')}</li>
-            </ul>
-          </details>
-        </div>
-
-        {board.oracles.length > 0 && (
-          <div className="PredictionBoard-oracles">
-            <Icon name="fas fa-wand-magic-sparkles" /> {t('board.oracles', { season: board.season?.name })}{' '}
-            {board.oracles.map((o) => (
-              <Link className="PredictionBoard-oracle" href={app.route('user', { username: o.user.slug })}>
-                <Avatar user={fakeUser(o.user)} className="PredictionAvatar" /> {o.user.displayName}
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {this.boardLoading ? (
-          <LoadingIndicator />
-        ) : board.rows.length ? (
-          <ol className="PredictionBoard-rows">
-            {board.rows.map((row) => this.boardRow(row, row.user.id === board.me?.user.id))}
-            {board.me &&
-              !board.rows.some((r) => r.user.id === board.me!.user.id) && [
-                <li className="PredictionBoard-gap" aria-hidden="true">
-                  ⋯
-                </li>,
-                this.boardRow(board.me, true),
-              ]}
-          </ol>
-        ) : (
-          <div className="PredictionsPage-empty">
-            <Icon name="fas fa-trophy" />
-            <p>{t('board.empty')}</p>
-          </div>
-        )}
+        {this.boardToolbar(board)}
+        {this.boardOracles(board)}
+        {this.boardLoading ? <LoadingIndicator /> : this.boardRows(board)}
       </div>
+    );
+  }
+
+  /** The season picker ("s12" keys keep the newest first: integer-like keys would be sorted) and how scoring works. */
+  boardToolbar(board: Board) {
+    const value = this.boardSeason || (board.season ? 's' + board.season.id : 'all');
+
+    return (
+      <div className="PredictionBoard-toolbar">
+        <Select
+          aria-label={tx('board.season')}
+          value={value}
+          options={Object.fromEntries([
+            ...board.seasons.map((s) => ['s' + s.id, s.endedAt ? s.name : tx('board.current', { name: s.name })]),
+            ['all', tx('board.all_time')],
+          ])}
+          onchange={(picked: string) => {
+            this.boardSeason = picked;
+            this.loadBoard();
+          }}
+        />
+        <details className="PredictionBoard-how">
+          <summary>{t('board.how')}</summary>
+          <ul>
+            <li>{t(app.forum.attribute('predictionsBoldBonus') ? 'board.how_choice_bold' : 'board.how_choice')}</li>
+            <li>{t('board.how_number')}</li>
+            <li>{t('board.how_rank')}</li>
+          </ul>
+        </details>
+      </div>
+    );
+  }
+
+  boardOracles(board: Board) {
+    if (!board.oracles.length) return null;
+
+    return (
+      <div className="PredictionBoard-oracles">
+        <Icon name="fas fa-wand-magic-sparkles" /> {t('board.oracles', { season: board.season?.name })}{' '}
+        {board.oracles.map((o) => (
+          <Link className="PredictionBoard-oracle" href={app.route('user', { username: o.user.slug })}>
+            <Avatar user={fakeUser(o.user)} className="PredictionAvatar" /> {o.user.displayName}
+          </Link>
+        ))}
+      </div>
+    );
+  }
+
+  /** The ranked rows, and the viewer's own row below a gap when they're off the board. */
+  boardRows(board: Board) {
+    if (!board.rows.length) {
+      return (
+        <div className="PredictionsPage-empty">
+          <Icon name="fas fa-trophy" />
+          <p>{t('board.empty')}</p>
+        </div>
+      );
+    }
+    const me = board.me;
+    const offBoard = me && !board.rows.some((r) => r.user.id === me.user.id);
+
+    return (
+      <ol className="PredictionBoard-rows">
+        {board.rows.map((row) => this.boardRow(row, row.user.id === me?.user.id))}
+        {me &&
+          offBoard && [
+            <li className="PredictionBoard-gap" aria-hidden="true">
+              ⋯
+            </li>,
+            this.boardRow(me, true),
+          ]}
+      </ol>
     );
   }
 

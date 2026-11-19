@@ -5,8 +5,6 @@ import PredictionCard from './PredictionCard';
 import { type Prediction } from '../api';
 import { lookup } from '../data';
 
-declare const m: Mithril.Static;
-
 type Context = 'post' | 'discussion';
 
 /**

@@ -1,6 +1,10 @@
 import app from 'flarum/forum/app';
 import extractText from 'flarum/common/utils/extractText';
-import { tx, type Prediction } from './api';
+import type User from 'flarum/common/models/User';
+import type { ApiPayloadPlural, ApiPayloadSingle } from 'flarum/common/Store';
+import type PredictionModel from './models/PredictionModel';
+import type PickModel from './models/PickModel';
+import { tx, type MyPick, type Person, type Prediction } from './api';
 
 /*
  * Talking to the server, the shared card cache and formatting: only the lazy
@@ -17,9 +21,11 @@ export function errorText(error: any): string {
   return tx('errors.generic');
 }
 
-export function call<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, data?: Record<string, any>): Promise<T> {
+type Doc = ApiPayloadSingle | ApiPayloadPlural;
+
+export function call(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, data?: Record<string, any>): Promise<any> {
   const url = app.forum.attribute<string>('apiUrl') + path;
-  return app.request<T>({
+  return app.request({
     method,
     url: method === 'GET' && data ? url + '?' + query(data) : url,
     body: method === 'GET' ? undefined : data,
@@ -39,6 +45,44 @@ function query(data: Record<string, any>, prefix = ''): string {
       return typeof value === 'object' ? query(value, name) : `${encodeURIComponent(name)}=${encodeURIComponent(String(value))}`;
     })
     .join('&');
+}
+
+export function person(user: User | false | undefined | null): Person | null {
+  if (!user) return null;
+  return {
+    id: Number(user.id()),
+    username: user.username(),
+    displayName: user.displayName(),
+    slug: user.slug(),
+    avatarUrl: user.avatarUrl() || null,
+  };
+}
+
+/**
+ * A stored prediction as the plain object cards read. Relationships only when the
+ * response carried them (an action's response has the attributes alone), so a
+ * refresh after a pick never blanks the creator or the discussion.
+ */
+function plain(model: PredictionModel): Prediction {
+  const attributes = model.data.attributes as Record<string, any>;
+  const related = model.data.relationships || {};
+  const discussion = model.discussion();
+
+  return {
+    ...(attributes as Omit<Prediction, 'id' | 'type' | 'user' | 'discussion'>),
+    id: Number(model.id()),
+    type: attributes.kind,
+    ...('user' in related ? { user: person(model.user()) } : {}),
+    ...('discussion' in related
+      ? { discussion: discussion ? { id: Number(discussion.id()), title: discussion.title(), slug: discussion.slug() } : null }
+      : {}),
+  } as Prediction;
+}
+
+/** A JSON:API answer pushed into the store and turned into plain predictions. */
+function store(doc: Doc): Prediction[] {
+  const models = app.store.pushPayload<PredictionModel[]>(doc as ApiPayloadPlural);
+  return (Array.isArray(models) ? models : [models]).map((model) => remember(plain(model as PredictionModel)));
 }
 
 /**
@@ -82,41 +126,59 @@ function flush(): void {
   const ids = [...batch.keys()];
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
+    const answer = (found: (id: number) => Prediction | null) => chunk.forEach((id) => batch.get(id)!.forEach((resolve) => resolve(found(id))));
     app
-      .request<{ data: Prediction[] }>({
+      .request<Doc>({
         method: 'GET',
-        url: app.forum.attribute('apiUrl') + '/predictions?' + query({ filter: { id: chunk.join(',') } }),
+        url: app.forum.attribute('apiUrl') + '/predictions?' + query({ filter: { id: chunk.join(',') }, page: { limit: 50 } }),
       })
       .then(
-        ({ data }) => {
-          data.forEach(remember);
-          chunk.forEach((id) => batch.get(id)!.forEach((resolve) => resolve(known.get(id) || null)));
+        (doc) => {
+          store(doc);
+          answer((id) => known.get(id) || null);
         },
-        () => chunk.forEach((id) => batch.get(id)!.forEach((resolve) => resolve(null)))
+        // A card that can't be loaded leaves its link a link.
+        () => answer(() => null)
       );
   }
 }
 
-export function list(filter: Record<string, any>, offset = 0, limit = 20) {
-  return call<{ data: Prediction[]; more: boolean; meta: { canCreate: boolean } }>('GET', '/predictions', { filter, page: { offset, limit } }).then(
-    (res) => ({ ...res, data: res.data.map(remember) })
-  );
+export function list(filter: Record<string, any>, offset = 0, limit = 20): Promise<{ data: Prediction[]; more: boolean }> {
+  return call('GET', '/predictions', { filter, page: { offset, limit } }).then((doc: ApiPayloadPlural) => ({
+    data: store(doc),
+    more: !!doc.links?.next,
+  }));
 }
 
+/** Open (id null) or edit a prediction. The form's `type` is sent as `kind`: JSON:API reserves `type`. */
 export function save(id: number | null, body: Record<string, any>): Promise<Prediction> {
-  return call<{ data: Prediction }>(id ? 'PATCH' : 'POST', id ? `/predictions/${id}` : '/predictions', body).then((res) => remember(res.data));
+  const { type, ...rest } = body;
+  const attributes = type === undefined ? rest : { ...rest, kind: type };
+  const data = { type: 'predictions', ...(id ? { id: String(id) } : {}), attributes };
+
+  return call(id ? 'PATCH' : 'POST', id ? `/predictions/${id}` : '/predictions', { data }).then((doc: Doc) => store(doc)[0]);
 }
 
 export function pick(id: number, body: { optionId?: number; value?: number } | null): Promise<Prediction> {
-  return call<{ data: Prediction }>(body ? 'POST' : 'DELETE', `/predictions/${id}/pick`, body || undefined).then((res) => remember(res.data));
+  return call(body ? 'POST' : 'DELETE', `/predictions/${id}/pick`, body || undefined).then((doc: Doc) => store(doc)[0]);
 }
 
 export function settle(id: number, body: { optionId?: number; value?: number; void?: boolean }): Promise<Prediction> {
-  return call<{ data: Prediction }>('POST', `/predictions/${id}/settle`, body).then((res) => remember(res.data));
+  return call('POST', `/predictions/${id}/settle`, body).then((doc: Doc) => store(doc)[0]);
 }
 
 export function remove(id: number): Promise<void> {
-  return call<void>('DELETE', `/predictions/${id}`).then(() => forget(id));
+  return call('DELETE', `/predictions/${id}`).then(() => forget(id));
+}
+
+/** Who picked what, best results first, once picks are out in the open. */
+export function pickers(id: number): Promise<Array<MyPick & { user: Person }>> {
+  return call('GET', '/prediction-picks', { filter: { prediction: id }, include: 'user' }).then((doc: ApiPayloadPlural) =>
+    app.store
+      .pushPayload<PickModel[]>(doc)
+      .map((m) => ({ optionId: m.optionId(), value: m.value(), hit: m.hit(), points: m.points(), user: person(m.user()) }))
+      .filter((row): row is MyPick & { user: Person } => row.user !== null)
+  );
 }
 
 /** "1,234.5" in the reader's language, keeping up to 2 decimals. */

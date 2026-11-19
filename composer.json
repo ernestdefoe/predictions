@@ -53,7 +53,6 @@
                 "color": "#fff"
             },
             "optional-dependencies": [
-                "flarum/tags",
                 "fof/badges"
             ]
         }
@@ -61,6 +60,9 @@
     "require-dev": {
         "flarum/phpstan": "^2.0",
         "flarum/testing": "^2.0"
+    },
+    "suggest": {
+        "fof/badges": "Gives each season's Oracles a badge."
     },
     "scripts": {
         "test": [

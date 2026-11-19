@@ -10,8 +10,6 @@ import { num, settle } from '../data';
  * locks it. Settling again corrects it, and everyone's points follow.
  */
 
-declare const m: Mithril.Static;
-
 export default class SettleModal extends FormModal<IFormModalAttrs & { prediction: Prediction }> {
   optionId: number | null = null;
   value = '';
@@ -41,32 +39,7 @@ export default class SettleModal extends FormModal<IFormModalAttrs & { predictio
           {p.status === 'settled' && <p className="helpText">{t('settle.correcting')}</p>}
           {p.myPick && <p className="helpText">{t('settle.own_pick')}</p>}
 
-          {p.type === 'number' ? (
-            <div className="Form-group">
-              <label for="prediction-answer">{t('settle.answer', { unit: p.unit || '' })}</label>
-              <input
-                id="prediction-answer"
-                className="FormControl"
-                type="number"
-                step="any"
-                inputmode="decimal"
-                required
-                value={this.value}
-                oninput={(e: InputEvent) => (this.value = (e.target as HTMLInputElement).value)}
-              />
-              {p.stats && <p className="helpText">{t('settle.guesses', { count: p.stats.count, min: num(p.stats.min), max: num(p.stats.max) })}</p>}
-            </div>
-          ) : (
-            <fieldset className="Form-group PredictionSettleModal-options">
-              <legend>{t('settle.which')}</legend>
-              {p.options.map((option, i) => (
-                <label className={'PredictionSettleModal-option' + (this.optionId === option.id ? ' is-active' : '')}>
-                  <input type="radio" name="prediction-answer" checked={this.optionId === option.id} onchange={() => (this.optionId = option.id)} />
-                  {optionLabel(p, option, i)}
-                </label>
-              ))}
-            </fieldset>
-          )}
+          {p.type === 'number' ? this.numberAnswer(p) : this.choiceAnswer(p)}
 
           <div className="Form-group">
             <Button
@@ -88,6 +61,39 @@ export default class SettleModal extends FormModal<IFormModalAttrs & { predictio
     );
   }
 
+  numberAnswer(p: Prediction) {
+    return (
+      <div className="Form-group">
+        <label for="prediction-answer">{t('settle.answer', { unit: p.unit || '' })}</label>
+        <input
+          id="prediction-answer"
+          className="FormControl"
+          type="number"
+          step="any"
+          inputmode="decimal"
+          required
+          value={this.value}
+          oninput={(e: InputEvent) => (this.value = (e.target as HTMLInputElement).value)}
+        />
+        {p.stats && <p className="helpText">{t('settle.guesses', { count: p.stats.count, min: num(p.stats.min), max: num(p.stats.max) })}</p>}
+      </div>
+    );
+  }
+
+  choiceAnswer(p: Prediction) {
+    return (
+      <fieldset className="Form-group PredictionSettleModal-options">
+        <legend>{t('settle.which')}</legend>
+        {p.options.map((option, i) => (
+          <label className={'PredictionSettleModal-option' + (this.optionId === option.id ? ' is-active' : '')}>
+            <input type="radio" name="prediction-answer" checked={this.optionId === option.id} onchange={() => (this.optionId = option.id)} />
+            {optionLabel(p, option, i)}
+          </label>
+        ))}
+      </fieldset>
+    );
+  }
+
   onsubmit(e: SubmitEvent) {
     e.preventDefault();
     const p = this.attrs.prediction;
@@ -102,7 +108,9 @@ export default class SettleModal extends FormModal<IFormModalAttrs & { predictio
         app.alerts.show({ type: 'success' }, body.void ? tx('settle.voided') : tx('settle.done'));
         this.hide();
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() has already shown the error */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

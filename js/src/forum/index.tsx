@@ -5,7 +5,6 @@ import LinkButton from 'flarum/common/components/LinkButton';
 import Button from 'flarum/common/components/Button';
 import Icon from 'flarum/common/components/Icon';
 import Link from 'flarum/common/components/Link';
-import Notification from 'flarum/forum/components/Notification';
 import CommentPost from 'flarum/forum/components/CommentPost';
 import DiscussionControls from 'flarum/forum/utils/DiscussionControls';
 import type Mithril from 'mithril';
@@ -15,51 +14,12 @@ import { openForm, percent, predictionUrl, t } from './api';
 export { default as extend } from './extend';
 
 /*
- * forum.js is loaded on every page, so it only wires things up: the routes,
- * the sidebar link, the notifications, the composer button, the discussion
+ * forum.js is loaded on every page, so it only wires things up: the sidebar
+ * link, the notification preferences, the composer button, the discussion
  * menu item, the profile line, and the scan that turns a prediction link
- * into its card. The card, the pages and the forms are one chunk fetched
- * when first needed.
+ * into its card. Routes, store models and notifications are in extend.ts.
+ * The card, the pages and the forms are one chunk fetched when first needed.
  */
-
-declare const m: Mithril.Static;
-
-function subjectTitle(notification: any): string {
-  return notification.subject()?.attribute?.('title') ?? '';
-}
-
-class CalledNotification extends Notification {
-  icon() {
-    return 'fas fa-bullseye';
-  }
-  href() {
-    return app.route('predictions.show', { id: (this.attrs.notification as any).subject()?.id() });
-  }
-  content() {
-    return t('notification.called');
-  }
-  excerpt() {
-    return subjectTitle(this.attrs.notification);
-  }
-}
-
-class MissedNotification extends CalledNotification {
-  icon() {
-    return 'fas fa-flag-checkered';
-  }
-  content() {
-    return t('notification.missed');
-  }
-}
-
-class LockedNotification extends CalledNotification {
-  icon() {
-    return 'fas fa-lock';
-  }
-  content() {
-    return t('notification.locked');
-  }
-}
 
 /**
  * The discussion's own predictions under its first post, less any that post
@@ -72,9 +32,6 @@ function attach(host: HTMLElement, discussion: any, embedded: number[]) {
   host.dataset.ids = key;
   if (ids.length || key !== '') import('./components').then(({ mountCards }) => mountCards(host, ids, 'discussion'));
 }
-
-const lazy = (page: 'PredictionsPage' | 'PredictionPage') => () =>
-  import('./components').then(async (ui) => (await ui.loadCore(), { default: ui[page] }));
 
 /** The composer the button is in: add the link on its own line, where it becomes the card. */
 function composerButton(this: any, items: ItemList<Mithril.Children>, priority: number) {
@@ -99,13 +56,6 @@ function composerButton(this: any, items: ItemList<Mithril.Children>, priority: 
 }
 
 app.initializers.add('ernestdefoe/predictions', () => {
-  app.routes['predictions'] = { path: '/predictions', component: lazy('PredictionsPage') };
-  app.routes['predictions.show'] = { path: '/predictions/:id', component: lazy('PredictionPage') };
-
-  app.notificationComponents.predictionCalled = CalledNotification;
-  app.notificationComponents.predictionMissed = MissedNotification;
-  app.notificationComponents.predictionLocked = LockedNotification;
-
   // String form: these components live in lazy chunks, and extending an imported copy patches one core never renders.
   extend('flarum/forum/components/IndexSidebar', 'navItems', function (items: ItemList<any>) {
     if (!app.forum.attribute('predictionsCanView') || !app.forum.attribute('predictionsNav')) return;

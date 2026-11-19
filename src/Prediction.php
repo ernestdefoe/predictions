@@ -45,8 +45,6 @@ class Prediction extends AbstractModel
     public const NUMBER = 'number';
     public const TYPES = [self::CHOICE, self::YESNO, self::NUMBER];
 
-    /** Pickers (besides whoever settles it) a prediction needs to count on the leaderboard. */
-    public const MIN_PICKERS = 3;
 
     protected $table = 'predictions';
 
@@ -192,7 +190,7 @@ class Prediction extends AbstractModel
     public function scopeVisibleTo(Builder $query, User $actor): void
     {
         if (! $actor->hasPermission(Settings::VIEW)) {
-            $query->whereRaw('1 = 0');
+            $query->whereIn('predictions.id', []);
 
             return;
         }

@@ -13,8 +13,6 @@ import { save } from '../data';
  * opened from one.
  */
 
-declare const m: Mithril.Static;
-
 interface Attrs extends IFormModalAttrs {
   prediction?: Prediction;
   discussionId?: number;
@@ -75,72 +73,11 @@ export default class PredictionModal extends FormModal<Attrs> {
     return (
       <div className="Modal-body">
         <div className="Form">
-          <div className="Form-group">
-            <label for="prediction-title">{t('form.question')}</label>
-            <input
-              id="prediction-title"
-              className="FormControl"
-              maxlength={150}
-              required
-              disabled={wordingLocked}
-              placeholder={tx('form.question_placeholder')}
-              value={this.question}
-              oninput={(e: InputEvent) => (this.question = (e.target as HTMLInputElement).value)}
-            />
-          </div>
-
-          <div className="Form-group">
-            <label for="prediction-description">{t('form.details')}</label>
-            <textarea
-              id="prediction-description"
-              className="FormControl"
-              rows={2}
-              maxlength={1000}
-              placeholder={tx('form.details_placeholder')}
-              value={this.description}
-              oninput={(e: InputEvent) => (this.description = (e.target as HTMLTextAreaElement).value)}
-            />
-          </div>
-
-          <fieldset className="Form-group PredictionModal-types" disabled={optionsLocked}>
-            <legend>{t('form.kind')}</legend>
-            <div className="PredictionModal-typeRow" role="radiogroup">
-              {TYPES.map(([type, icon]) => (
-                <label className={'PredictionModal-type' + (this.type === type ? ' is-active' : '')}>
-                  <input type="radio" name="prediction-type" value={type} checked={this.type === type} onchange={() => (this.type = type)} />
-                  <Icon name={icon} />
-                  <span className="PredictionModal-typeName">{t(`card.kind.${type}`)}</span>
-                  <span className="PredictionModal-typeHelp">{t(`form.kind_help.${type}`)}</span>
-                </label>
-              ))}
-            </div>
-            {optionsLocked && <p className="helpText">{t('form.options_locked')}</p>}
-          </fieldset>
-
+          {this.questionFields(wordingLocked)}
+          {this.kindFields(optionsLocked)}
           {this.type === 'choice' && this.optionFields(optionsLocked)}
           {this.type === 'number' && this.numberFields(optionsLocked)}
-
-          <div className="Form-group">
-            <label for="prediction-lock">{t('form.lock_at')}</label>
-            <input
-              id="prediction-lock"
-              className="FormControl"
-              type="datetime-local"
-              required
-              disabled={lockLocked}
-              min={local(new Date(Date.now() + 120000))}
-              value={this.lockAt}
-              oninput={(e: InputEvent) => (this.lockAt = (e.target as HTMLInputElement).value)}
-            />
-            <p className="helpText">{t('form.lock_help')}</p>
-          </div>
-
-          <div className="Form-group">
-            <Switch state={this.hidePicks} disabled={lockLocked || wordingLocked} onchange={(value: boolean) => (this.hidePicks = value)}>
-              {t('form.hide_picks')}
-            </Switch>
-            <p className="helpText">{t(wordingLocked ? 'form.wording_locked' : 'form.hide_picks_help')}</p>
-          </div>
+          {this.lockFields(lockLocked, wordingLocked)}
 
           <div className="Form-group">
             <Button className="Button Button--primary Button--block" type="submit" loading={this.loading}>
@@ -150,6 +87,80 @@ export default class PredictionModal extends FormModal<Attrs> {
         </div>
       </div>
     );
+  }
+
+  questionFields(wordingLocked: boolean) {
+    return [
+      <div className="Form-group">
+        <label for="prediction-title">{t('form.question')}</label>
+        <input
+          id="prediction-title"
+          className="FormControl"
+          maxlength={150}
+          required
+          disabled={wordingLocked}
+          placeholder={tx('form.question_placeholder')}
+          value={this.question}
+          oninput={(e: InputEvent) => (this.question = (e.target as HTMLInputElement).value)}
+        />
+      </div>,
+      <div className="Form-group">
+        <label for="prediction-description">{t('form.details')}</label>
+        <textarea
+          id="prediction-description"
+          className="FormControl"
+          rows={2}
+          maxlength={1000}
+          placeholder={tx('form.details_placeholder')}
+          value={this.description}
+          oninput={(e: InputEvent) => (this.description = (e.target as HTMLTextAreaElement).value)}
+        />
+      </div>,
+    ];
+  }
+
+  kindFields(optionsLocked: boolean) {
+    return (
+      <fieldset className="Form-group PredictionModal-types" disabled={optionsLocked}>
+        <legend>{t('form.kind')}</legend>
+        <div className="PredictionModal-typeRow" role="radiogroup">
+          {TYPES.map(([type, icon]) => (
+            <label className={'PredictionModal-type' + (this.type === type ? ' is-active' : '')}>
+              <input type="radio" name="prediction-type" value={type} checked={this.type === type} onchange={() => (this.type = type)} />
+              <Icon name={icon} />
+              <span className="PredictionModal-typeName">{t(`card.kind.${type}`)}</span>
+              <span className="PredictionModal-typeHelp">{t(`form.kind_help.${type}`)}</span>
+            </label>
+          ))}
+        </div>
+        {optionsLocked && <p className="helpText">{t('form.options_locked')}</p>}
+      </fieldset>
+    );
+  }
+
+  lockFields(lockLocked: boolean, wordingLocked: boolean) {
+    return [
+      <div className="Form-group">
+        <label for="prediction-lock">{t('form.lock_at')}</label>
+        <input
+          id="prediction-lock"
+          className="FormControl"
+          type="datetime-local"
+          required
+          disabled={lockLocked}
+          min={local(new Date(Date.now() + 120000))}
+          value={this.lockAt}
+          oninput={(e: InputEvent) => (this.lockAt = (e.target as HTMLInputElement).value)}
+        />
+        <p className="helpText">{t('form.lock_help')}</p>
+      </div>,
+      <div className="Form-group">
+        <Switch state={this.hidePicks} disabled={lockLocked || wordingLocked} onchange={(value: boolean) => (this.hidePicks = value)}>
+          {t('form.hide_picks')}
+        </Switch>
+        <p className="helpText">{t(wordingLocked ? 'form.wording_locked' : 'form.hide_picks_help')}</p>
+      </div>,
+    ];
   }
 
   optionFields(locked: boolean) {
@@ -248,7 +259,9 @@ export default class PredictionModal extends FormModal<Attrs> {
         this.attrs.onsave?.(p);
         this.hide();
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() has already shown the error */
+      })
       .finally(() => {
         this.loading = false;
         m.redraw();

@@ -3,12 +3,10 @@
 namespace ErnestDefoe\Predictions;
 
 use Carbon\Carbon;
-use ErnestDefoe\Predictions\Award\BadgeAward;
-use Flarum\Extension\ExtensionManager;
+use ErnestDefoe\Predictions\Award\OracleBadge;
 use Flarum\Group\Group;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
-use Illuminate\Contracts\Container\Container;
 
 /**
  * Ending a season: the top predictors become its Oracles, the board starts
@@ -20,24 +18,27 @@ class Seasons
 
     public function __construct(
         private readonly SettingsRepositoryInterface $settings,
-        private readonly ExtensionManager $extensions,
-        private readonly Container $container,
+        private readonly OracleBadge $badge,
+        private readonly RowLock $lock,
     ) {
     }
 
     /** @return array{ended: Season, started: Season, oracles: list<int>} */
     public function startNew(string $name): array
     {
-        [$ended, $started, $oracles] = Season::query()->getConnection()->transaction(function () use ($name) {
+        // One season change at a time: two admins clicking at once must not end two seasons.
+        [$ended, $started, $oracles] = $this->lock->run('season', function () use ($name) {
             $current = Season::query()->whereNull('ended_at')->orderByDesc('id')->lockForUpdate()->first() ?? Season::current();
 
             $top = Score::query()->where('season_id', $current->id)->where('points', '>', 0)
                 ->orderByDesc('points')->orderByDesc('hits')->orderBy('settled')->orderBy('user_id')
-                ->limit(max(0, (int) ($this->settings->get(Settings::ORACLE_COUNT) ?? Settings::DEFAULT_ORACLE_COUNT)))
+                ->limit(max(0, (int) $this->settings->get(Settings::ORACLE_COUNT)))
                 ->get();
 
-            foreach ($top->values() as $i => $score) {
-                Award::query()->insert(['season_id' => $current->id, 'user_id' => $score->user_id, 'rank' => $i + 1, 'points' => $score->points]);
+            if ($top->isNotEmpty()) {
+                Award::query()->insert($top->values()->map(fn (Score $score, int $i) => [
+                    'season_id' => $current->id, 'user_id' => $score->user_id, 'rank' => $i + 1, 'points' => $score->points,
+                ])->all());
             }
 
             $current->ended_at = Carbon::now();
@@ -60,7 +61,8 @@ class Seasons
      * The Oracle group moves to this season's winners. Only memberships this
      * extension added are ever taken back (each award row records the group it
      * put the member in): someone an admin put in the group by hand stays. Admins,
-     * Moderators, Members and Guests are never an Oracle group.
+     * Moderators, Members and Guests are never an Oracle group. The badge (FoF
+     * Badges) goes through OracleBadge, which does nothing without FoF Badges.
      *
      * @param list<int> $oracles
      */
@@ -68,7 +70,8 @@ class Seasons
     {
         $users = User::query()->whereIn('id', $oracles ?: [0])->get();
 
-        $groupId = (int) $this->settings->get(Settings::ORACLE_GROUP);
+        // Stored as "g5" by the admin select (letters keep its options in order); a bare "5" works too.
+        $groupId = (int) preg_replace('/\D+/', '', (string) $this->settings->get(Settings::ORACLE_GROUP));
         $group = in_array($groupId, self::NEVER_ORACLE_GROUPS, true) ? null : Group::query()->find($groupId);
         if ($group) {
             // Memberships we gave in earlier seasons.
@@ -81,20 +84,17 @@ class Seasons
             }
 
             $members = $group->users()->whereIn('users.id', $oracles ?: [0])->pluck('users.id')->map(fn ($id) => (int) $id)->all();
-            foreach ($users as $user) {
-                $already = in_array((int) $user->id, $members, true);
-                if (! $already) {
-                    $group->users()->attach($user->id);
-                }
-                // Ours if we add them now, or we added them before and they stay; not if an admin did.
-                if (! $already || in_array((int) $user->id, $ours, true)) {
-                    Award::query()->where('season_id', $season->id)->where('user_id', $user->id)->update(['group_id' => $group->id]);
-                }
+            $joining = array_values(array_diff($oracles, $members));
+            if ($joining) {
+                $group->users()->attach($joining);
+            }
+            // Ours if we add them now, or we added them before and they stay; not if an admin did.
+            $recorded = array_values(array_unique([...$joining, ...array_intersect($oracles, $ours)]));
+            if ($recorded) {
+                Award::query()->where('season_id', $season->id)->whereIn('user_id', $recorded)->update(['group_id' => $group->id]);
             }
         }
 
-        if ($this->settings->get(Settings::ORACLE_BADGE) && $this->extensions->isEnabled('fof-badges') && class_exists(\FoF\Badges\BadgeAwarder::class)) {
-            $this->container->make(BadgeAward::class)->award($season, $users->all());
-        }
+        $this->badge->award($season, $users->values()->all());
     }
 }

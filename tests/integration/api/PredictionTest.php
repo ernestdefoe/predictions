@@ -44,18 +44,62 @@ class PredictionTest extends TestCase
         ]);
     }
 
-    /** @return array{int, array<string, mixed>|null} */
+    /**
+     * The API as a member. Writes to /api/predictions and /api/prediction-seasons go out as
+     * JSON:API documents; a single resource coming back is flattened to its id + attributes
+     * (with the prediction's "kind" as "type") so assertions read like the card does.
+     *
+     * @return array{int, array<string, mixed>|null}
+     */
     private function call(string $method, string $path, int $as, array $body = []): array
     {
         $options = ['authenticatedAs' => $as];
         if ($method !== 'GET') {
-            $options['json'] = $body;
+            $options['json'] = $this->document($method, $path, $body);
         }
         [$path, $query] = array_pad(explode('?', $path, 2), 2, '');
         parse_str($query, $params);
         $response = $this->send($this->request($method, $path, $options)->withQueryParams($params));
+        $json = json_decode((string) $response->getBody(), true);
+        if (isset($json['data']['attributes'])) {
+            $json['data'] = ['id' => (int) $json['data']['id']] + $json['data']['attributes'];
+            if (isset($json['data']['kind'])) {
+                $json['data']['type'] = $json['data']['kind'];
+            }
+        }
 
-        return [$response->getStatusCode(), json_decode((string) $response->getBody(), true)];
+        return [$response->getStatusCode(), $json];
+    }
+
+    /** @return array<string, mixed> */
+    private function document(string $method, string $path, array $body): array
+    {
+        if (preg_match('#^/api/(predictions|prediction-seasons)(?:/(\d+))?$#', $path, $m) && in_array($method, ['POST', 'PATCH'], true)) {
+            if (array_key_exists('type', $body)) {
+                $body['kind'] = $body['type'];
+                unset($body['type']);
+            }
+
+            return ['data' => array_filter(['type' => $m[1], 'id' => $m[2] ?? null, 'attributes' => $body], fn ($v) => $v !== null)];
+        }
+
+        return $body;
+    }
+
+    /**
+     * Who picked what, as usernames in result order (an empty list while picks are hidden).
+     *
+     * @return list<string>
+     */
+    private function pickers(int $predictionId, int $as): array
+    {
+        [, $json] = $this->call('GET', '/api/prediction-picks?filter[prediction]='.$predictionId.'&include=user', $as);
+        $names = [];
+        foreach ($json['included'] ?? [] as $included) {
+            $names[$included['id']] = $included['attributes']['username'];
+        }
+
+        return array_map(fn ($pick) => $names[$pick['relationships']['user']['data']['id']], $json['data']);
     }
 
     /** @return array<string, mixed> */
@@ -108,12 +152,12 @@ class PredictionTest extends TestCase
         [, $json] = $this->call('GET', "/api/predictions/{$p['id']}", 4);
         $this->assertNull($json['data']['options'][0]['count']);
         $this->assertSame(1, $json['data']['picksCount']);
-        $this->assertTrue($this->call('GET', "/api/predictions/{$p['id']}/picks", 4)[1]['hidden']);
+        $this->assertSame([], $this->pickers($p['id'], 4));
 
         $this->expire($p['id']);
         [, $json] = $this->call('GET', "/api/predictions/{$p['id']}", 4);
         $this->assertSame(1, $json['data']['options'][0]['count']);
-        $this->assertSame('dana', $this->call('GET', "/api/predictions/{$p['id']}/picks", 4)[1]['data'][0]['user']['username']);
+        $this->assertSame(['dana'], $this->pickers($p['id'], 4));
     }
 
     #[Test]
@@ -233,7 +277,7 @@ class PredictionTest extends TestCase
         $this->assertSame(403, $this->call('POST', '/api/prediction-seasons', 3, ['name' => 'Bowl season'])[0]);
         [$status, $json] = $this->call('POST', '/api/prediction-seasons', 1, ['name' => 'Bowl season']);
         $this->assertSame(201, $status);
-        $this->assertSame(2, $json['oracles']); // sam scored nothing
+        $this->assertSame(2, $json['data']['oraclesNamed']); // sam scored nothing
 
         [, $board] = $this->call('GET', '/api/prediction-leaderboard', 3);
         $this->assertSame('Bowl season', $board['season']['name']);
@@ -401,7 +445,7 @@ class PredictionTest extends TestCase
         ]);
         // Through the repository: it caches what it read at boot.
         $settings = $this->app()->getContainer()->make(\Flarum\Settings\SettingsRepositoryInterface::class);
-        $settings->set('ernestdefoe-predictions.oracle_group', '10');
+        $settings->set('ernestdefoe-predictions.oracle_group', 'g10'); // as the admin's select stores it
         $settings->set('ernestdefoe-predictions.oracle_count', '1');
         // riley was put in the group by an admin.
         $this->database()->table('group_user')->insert(['user_id' => 6, 'group_id' => 10]);
@@ -442,5 +486,64 @@ class PredictionTest extends TestCase
         $this->assertSame(1, $row->picks_count);
         $this->assertSame(1, $row->stats['count']);
         $this->assertSame(10.0, (float) $row->stats['max']);
+    }
+
+    #[Test]
+    public function every_write_needs_an_account()
+    {
+        $p = $this->create();
+        // A guest is stopped before anything is written: 401 by the endpoint's authenticated() guard,
+        // or 400 by the CSRF check that runs first for a request with no session.
+        $guest = fn (string $method, string $path, array $json) => $this->send($this->request($method, $path, ['json' => $json]))->getStatusCode();
+        $refused = [400, 401];
+
+        $this->assertContains($guest('POST', '/api/predictions', ['data' => ['type' => 'predictions', 'attributes' => ['title' => 'Mine now']]]), $refused);
+        $this->assertContains($guest('PATCH', "/api/predictions/{$p['id']}", ['data' => ['type' => 'predictions', 'id' => (string) $p['id'], 'attributes' => ['title' => 'Mine now']]]), $refused);
+        $this->assertContains($guest('DELETE', "/api/predictions/{$p['id']}", []), $refused);
+        $this->assertContains($guest('POST', "/api/predictions/{$p['id']}/settle", ['optionId' => $p['options'][0]['id']]), $refused);
+        $this->assertContains($guest('POST', '/api/prediction-seasons', ['data' => ['type' => 'prediction-seasons', 'attributes' => ['name' => 'Mine']]]), $refused);
+        $this->assertSame('Who wins the Heisman?', Prediction::query()->value('title'));
+        $this->assertSame(1, Prediction::query()->count());
+    }
+
+    #[Test]
+    public function a_prediction_another_request_is_writing_says_try_again()
+    {
+        $p = $this->create();
+        // Someone else holds this prediction's lock (a settle, a scoring run…).
+        $store = $this->app()->getContainer()->make(\Illuminate\Contracts\Cache\Repository::class)->getStore();
+        $lock = $store->lock('ernestdefoe-predictions.prediction.'.$p['id'], 15);
+        $this->assertTrue($lock->get());
+
+        [$status, $json] = $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][0]['id']]);
+        $this->assertSame(409, $status);
+        $this->assertSame('predictions_busy', $json['errors'][0]['code']);
+        $this->assertSame(0, Pick::query()->count());
+
+        $lock->release();
+        $this->assertSame(200, $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][0]['id']])[0]);
+    }
+
+    #[Test]
+    public function the_list_costs_the_same_queries_for_one_card_or_twenty()
+    {
+        for ($i = 0; $i < 20; $i++) {
+            $p = $this->create(['title' => "Question $i"], 2 + $i % 4);
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][$i % 3]['id']]);
+        }
+
+        $count = function (int $limit): int {
+            $db = $this->app()->getContainer()->make(\Illuminate\Database\ConnectionInterface::class);
+            $queries = 0;
+            $db->listen(function () use (&$queries) {
+                $queries++;
+            });
+            [$status] = $this->call('GET', '/api/predictions?page[limit]='.$limit, 3);
+            $this->assertSame(200, $status);
+
+            return $queries;
+        };
+
+        $this->assertSame($count(1), $count(20));
     }
 }

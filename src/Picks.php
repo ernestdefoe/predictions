@@ -8,7 +8,7 @@ use Flarum\User\User;
 /**
  * Making, changing and taking back a pick.
  *
- * 🚨 Race-safe: the prediction row is locked (SELECT ... FOR UPDATE) and the
+ * 🚨 Race-safe: under the prediction's RowLock the row is re-read (SELECT ... FOR UPDATE) and the
  * lock time and settle state are re-read INSIDE the transaction, so a pick
  * that arrives at 7:59:59.999 against a 8:00 lock, or alongside a settle, is
  * judged against the row as it is at that moment, never against a copy read
@@ -16,9 +16,13 @@ use Flarum\User\User;
  */
 class Picks
 {
+    public function __construct(private readonly RowLock $lock)
+    {
+    }
+
     public function pick(Prediction $prediction, User $actor, ?int $optionId, ?float $value): Prediction
     {
-        return $prediction->getConnection()->transaction(function () use ($prediction, $actor, $optionId, $value) {
+        return $this->lock->run('prediction.'.$prediction->id, function () use ($prediction, $actor, $optionId, $value) {
             $locked = $this->lockRow($prediction);
 
             if ($locked->type === Prediction::NUMBER) {
@@ -48,7 +52,7 @@ class Picks
 
     public function withdraw(Prediction $prediction, User $actor): Prediction
     {
-        return $prediction->getConnection()->transaction(function () use ($prediction, $actor) {
+        return $this->lock->run('prediction.'.$prediction->id, function () use ($prediction, $actor) {
             $locked = $this->lockRow($prediction);
             Pick::query()->where('prediction_id', $locked->id)->where('user_id', $actor->id)->delete();
             $this->recount($locked);
@@ -66,15 +70,14 @@ class Picks
             $values = Pick::query()->where('prediction_id', $prediction->id)->whereNotNull('value')->pluck('value')->map(fn ($v) => (float) $v)->all();
             $prediction->stats = Scoring::stats(array_values($values));
         } else {
-            $counts = Pick::query()->where('prediction_id', $prediction->id)
-                ->selectRaw('option_id, COUNT(*) as aggregate')->groupBy('option_id')->pluck('aggregate', 'option_id');
+            $counts = Pick::query()->where('prediction_id', $prediction->id)->pluck('option_id')->countBy();
 
-            foreach ($prediction->options()->get() as $option) {
-                $count = (int) ($counts[$option->id] ?? 0);
-                if ($option->picks_count !== $count) {
-                    $option->picks_count = $count;
-                    $option->save();
-                }
+            // Every option's count in one statement (at most 12 rows), not one save per option.
+            $rows = $prediction->options()->get(['id', 'prediction_id', 'label', 'position'])
+                ->map(fn (Option $option) => $option->only(['id', 'prediction_id', 'label', 'position']) + ['picks_count' => (int) ($counts[$option->id] ?? 0)])
+                ->all();
+            if ($rows) {
+                Option::query()->upsert($rows, ['id'], ['picks_count']);
             }
         }
 

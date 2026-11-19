@@ -40,7 +40,7 @@ export default function scan(root: Element | null): number[] {
   if (!root || !app.forum.attribute('predictionsCanView')) return [];
   const found: Array<[HTMLAnchorElement, number]> = [];
   // Cards already in from an earlier scan still count as embedded.
-  const ids: number[] = [...root.querySelectorAll<HTMLElement>('.Post-body .PredictionEmbed[data-id]')].map((el) => Number(el.dataset.id));
+  const ids: number[] = Array.from(root.querySelectorAll<HTMLElement>('.Post-body .PredictionEmbed[data-id]')).map((el) => Number(el.dataset.id));
 
   root.querySelectorAll<HTMLAnchorElement>('.Post-body a[href*="/predictions/"]').forEach((a) => {
     // Our own cards (embedded, or attached under the first post) link to themselves.

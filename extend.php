@@ -4,8 +4,8 @@
  * Predictions: members call it before it happens.
  *
  * A prediction is multiple choice, yes/no or a number scored by closeness,
- * with a lock time. Picks are judged against the lock time under a row lock
- * (Picks), settling writes the answer under the same lock and queues the
+ * with a lock time. Picks are judged against the lock time under the
+ * prediction's RowLock (Picks), settling writes the answer under it and queues the
  * scoring (Settler → Job\ScorePrediction → Scorer), and the scheduler stamps
  * locks and catches up any scoring a queue lost (predictions:tick). Every
  * step can run twice without changing the result.
@@ -14,6 +14,7 @@
  * members a prediction touched, so the leaderboard is one indexed query.
  */
 
+use ErnestDefoe\Predictions\Access\PredictionPolicy;
 use ErnestDefoe\Predictions\Api;
 use ErnestDefoe\Predictions\Console\TickCommand;
 use ErnestDefoe\Predictions\Http\PageContent;
@@ -21,12 +22,12 @@ use ErnestDefoe\Predictions\Listener\AttachFromPost;
 use ErnestDefoe\Predictions\Listener\Cleanup;
 use ErnestDefoe\Predictions\Notification;
 use ErnestDefoe\Predictions\Prediction;
-use ErnestDefoe\Predictions\Settings;
-use Flarum\Api\Context;
+use ErnestDefoe\Predictions\Provider\BadgesServiceProvider;
+use ErnestDefoe\Predictions\Provider\PredictionsServiceProvider;
+use ErnestDefoe\Predictions\Refusal;
 use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\UserResource;
-use Flarum\Api\Schema;
 use Flarum\Discussion\Event\Deleting as DiscussionDeleting;
 use Flarum\Extend;
 use Flarum\Post\Event\Posted;
@@ -48,56 +49,56 @@ return [
 
     new Extend\Locales(__DIR__.'/locale'),
 
-    (new Extend\Routes('api'))
-        ->get('/predictions', 'predictions.index', Api\ListController::class)
-        ->post('/predictions', 'predictions.create', Api\SaveController::class)
-        ->get('/predictions/{id:\d+}', 'predictions.show', Api\ShowController::class)
-        ->patch('/predictions/{id:\d+}', 'predictions.update', Api\SaveController::class)
-        ->delete('/predictions/{id:\d+}', 'predictions.delete', Api\DeleteController::class)
-        ->post('/predictions/{id:\d+}/pick', 'predictions.pick', Api\PickController::class)
-        ->delete('/predictions/{id:\d+}/pick', 'predictions.unpick', Api\PickController::class)
-        ->post('/predictions/{id:\d+}/settle', 'predictions.settle', Api\SettleController::class)
-        ->get('/predictions/{id:\d+}/picks', 'predictions.picks', Api\PicksController::class)
-        ->get('/prediction-leaderboard', 'predictions.leaderboard', Api\LeaderboardController::class)
-        ->post('/prediction-seasons', 'predictions.seasons.create', Api\SeasonController::class),
-
+    // Predictions, who picked what and seasons are API resources. The leaderboard is a
+    // computed report (ranks, the viewer's own row, Oracles), so it is a plain JSON route.
     new Extend\ApiResource(Api\PredictionResource::class),
+    new Extend\ApiResource(Api\PickResource::class),
+    new Extend\ApiResource(Api\SeasonResource::class),
 
-    // The ids of a discussion's own predictions, on the discussion page only (one indexed query
-    // there, none on lists): the first post shows their cards.
-    (new Extend\ApiResource(DiscussionResource::class))
-        ->fields(fn () => [
-            Schema\Arr::make('predictionIds')
-                ->visible(fn ($discussion, Context $context) => $context->showing(DiscussionResource::class) && $context->getActor()->hasPermission(Settings::VIEW))
-                ->get(fn ($discussion) => Prediction::query()->where('discussion_id', $discussion->id)->orderBy('id')->limit(10)->pluck('id')->map(fn ($id) => (int) $id)->all()),
+    (new Extend\Routes('api'))
+        ->get('/prediction-leaderboard', 'predictions.leaderboard', Api\LeaderboardController::class),
+
+    (new Extend\Policy())
+        ->modelPolicy(Prediction::class, PredictionPolicy::class),
+
+    (new Extend\ErrorHandling())
+        ->handler(Refusal::class, Api\RefusalHandler::class),
+
+    (new Extend\ServiceProvider())
+        ->register(PredictionsServiceProvider::class),
+
+    // Oracles get FoF Badges' badge only while it is enabled; nothing of theirs loads otherwise.
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('fof-badges', fn () => [
+            (new Extend\ServiceProvider())->register(BadgesServiceProvider::class),
         ]),
+
+    (new Extend\ApiResource(DiscussionResource::class))
+        ->fields(Api\DiscussionFields::class),
 
     (new Extend\ApiResource(UserResource::class))
         ->fields(Api\UserFields::class),
 
-    // The viewer's own permissions: their groups are already loaded, so no query.
     (new Extend\ApiResource(ForumResource::class))
-        ->fields(fn () => [
-            Schema\Boolean::make('predictionsCanView')
-                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission(Settings::VIEW)),
-            Schema\Boolean::make('predictionsCanCreate')
-                ->get(fn ($forum, Context $context) => ! $context->getActor()->isGuest() && $context->getActor()->hasPermission(Settings::CREATE)),
-            Schema\Boolean::make('predictionsCanModerate')
-                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission(Settings::MODERATE)),
-        ]),
+        ->fields(Api\ForumFields::class),
 
     (new Extend\Notification())
         ->type(Notification\PredictionCalledBlueprint::class, ['alert'])
         ->type(Notification\PredictionMissedBlueprint::class, ['alert'])
         ->type(Notification\PredictionLockedBlueprint::class, ['alert']),
 
+    // String keys, not Settings:: constants: reading the extension's own classes while
+    // extend.php loads fatals every request during a deploy that is still swapping them.
     (new Extend\Settings())
-        ->default(Settings::NAV, true)
-        ->default(Settings::BOLD_BONUS, true)
-        ->default(Settings::ORACLE_COUNT, Settings::DEFAULT_ORACLE_COUNT)
-        ->default(Settings::ORACLE_BADGE, true)
-        ->serializeToForum('predictionsNav', Settings::NAV, 'boolval')
-        ->serializeToForum('predictionsBoldBonus', Settings::BOLD_BONUS, 'boolval'),
+        ->default('ernestdefoe-predictions.nav', true)
+        ->default('ernestdefoe-predictions.bold_bonus', true)
+        ->default('ernestdefoe-predictions.oracle_count', 3)
+        ->default('ernestdefoe-predictions.oracle_group', '')
+        ->default('ernestdefoe-predictions.oracle_badge', true)
+        ->default('ernestdefoe-predictions.min_pickers', 3)
+        ->default('ernestdefoe-predictions.daily_limit', 20)
+        ->serializeToForum('predictionsNav', 'ernestdefoe-predictions.nav', 'boolval')
+        ->serializeToForum('predictionsBoldBonus', 'ernestdefoe-predictions.bold_bonus', 'boolval'),
 
     (new Extend\Event())
         ->listen(Posted::class, AttachFromPost::class)

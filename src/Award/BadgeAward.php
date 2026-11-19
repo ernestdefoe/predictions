@@ -13,14 +13,14 @@ use FoF\Badges\UserBadge;
 use Illuminate\Support\Str;
 
 /**
- * The Oracle badge, through FoF Badges. Only ever constructed when FoF Badges
- * is enabled (Seasons checks), since every class named here is theirs.
+ * The Oracle badge, through FoF Badges. Bound to OracleBadge only when FoF
+ * Badges is enabled (Extend\Conditional), since every class named here is theirs.
  *
  * The badge is made the first time and remembered by id, so an admin can
  * rename or recolour it in FoF Badges. It has no trigger, so FoF Badges'
  * recalculation treats it as a manual badge and never takes it back.
  */
-class BadgeAward
+class BadgeAward implements OracleBadge
 {
     public function __construct(
         private readonly BadgeAwarder $awarder,
@@ -32,7 +32,7 @@ class BadgeAward
     /** @param list<User> $users */
     public function award(Season $season, array $users): void
     {
-        if (! $users) {
+        if (! $users || ! $this->settings->get(Settings::ORACLE_BADGE)) {
             return;
         }
 

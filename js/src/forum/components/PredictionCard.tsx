@@ -12,9 +12,6 @@ import SettleModal from './SettleModal';
 import { openForm, optionLabel, percent, predictionUrl, t, tx, type Option, type Person, type Prediction } from '../api';
 import { countdown, num, pick, remove, save, when } from '../data';
 
-declare const m: Mithril.Static;
-declare const flarum: any;
-
 export interface PredictionCardAttrs extends ComponentAttrs {
   prediction: Prediction;
   /** Where it's shown: a full card on the page, a slimmer one inside a post. */
@@ -133,42 +130,16 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
   }
 
   controls(p: Prediction) {
-    const items: Mithril.Children[] = [];
-    if (p.can.settle && p.status !== 'settled' && p.status !== 'void')
-      items.push(
-        <Button icon="fas fa-flag-checkered" onclick={() => this.openSettle()}>
-          {t('card.settle')}
-        </Button>
-      );
-    if ((p.can.settle || p.can.void) && (p.status === 'settled' || p.status === 'void'))
-      items.push(
-        <Button icon="fas fa-rotate" onclick={() => this.openSettle()}>
-          {t('card.correct')}
-        </Button>
-      );
-    if (p.can.edit)
-      items.push(
-        <Button icon="fas fa-pencil" onclick={() => openForm({ prediction: p })}>
-          {t('card.edit')}
-        </Button>
-      );
-    if (p.can.edit && p.status === 'open')
-      items.push(
-        <Button icon="fas fa-lock" onclick={() => this.lockNow()}>
-          {t('card.lock_now')}
-        </Button>
-      );
-    items.push(
-      <Button icon="fas fa-link" onclick={() => this.copyLink()}>
-        {t('card.copy_link')}
-      </Button>
-    );
-    if (p.can.delete)
-      items.push(
-        <Button icon="fas fa-trash-can" onclick={() => this.remove()}>
-          {t('card.delete')}
-        </Button>
-      );
+    const done = p.status === 'settled' || p.status === 'void';
+    // [shown, icon, label, action]: the menu in the order members see it.
+    const actions: Array<[boolean, string, string, () => void]> = [
+      [p.can.settle && !done, 'fas fa-flag-checkered', 'card.settle', () => this.openSettle()],
+      [(p.can.settle || p.can.void) && done, 'fas fa-rotate', 'card.correct', () => this.openSettle()],
+      [p.can.edit, 'fas fa-pencil', 'card.edit', () => openForm({ prediction: p })],
+      [p.can.edit && p.status === 'open', 'fas fa-lock', 'card.lock_now', () => this.lockNow()],
+      [true, 'fas fa-link', 'card.copy_link', () => this.copyLink()],
+      [p.can.delete, 'fas fa-trash-can', 'card.delete', () => this.remove()],
+    ];
 
     return (
       <Dropdown
@@ -179,7 +150,13 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
         label={tx('card.controls')}
         accessibleToggleLabel={tx('card.controls')}
       >
-        {items}
+        {actions
+          .filter(([shown]) => shown)
+          .map(([, icon, label, action]) => (
+            <Button icon={icon} onclick={action}>
+              {t(label)}
+            </Button>
+          ))}
       </Dropdown>
     );
   }
@@ -238,33 +215,7 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
 
     return (
       <div className="PredictionNumber">
-        {p.can.pick ? (
-          <form className="PredictionNumber-form" onsubmit={(e: SubmitEvent) => this.submitGuess(e)}>
-            <label className="PredictionNumber-field">
-              <span className="sr-only">{t('card.your_guess')}</span>
-              <input
-                className="FormControl"
-                type="number"
-                step="any"
-                inputmode="decimal"
-                placeholder={mine !== null ? num(mine) : tx('card.guess_placeholder')}
-                value={this.guess}
-                oninput={(e: InputEvent) => (this.guess = (e.target as HTMLInputElement).value)}
-              />
-              {p.unit && <span className="PredictionNumber-unit">{p.unit}</span>}
-            </label>
-            <Button type="submit" className="Button Button--primary" loading={this.busy} disabled={this.guess.trim() === ''}>
-              {mine !== null ? t('card.change_guess') : t('card.lock_in')}
-            </Button>
-          </form>
-        ) : (
-          !app.session.user &&
-          p.status === 'open' && (
-            <Button className="Button Button--primary PredictionCard-login" onclick={() => this.login()}>
-              {t('card.log_in_to_pick')}
-            </Button>
-          )
-        )}
+        {this.guessForm(p, mine)}
 
         {mine !== null && (
           <p className="PredictionNumber-mine">
@@ -282,19 +233,57 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
         )}
 
         {p.stats && this.histogram(p)}
-
-        {p.stats?.closest?.length ? (
-          <ol className="PredictionClosest" aria-label={tx('card.closest')}>
-            {p.stats.closest.map((row) => (
-              <li className={row.points >= 20 ? 'is-best' : ''}>
-                <PersonLink person={row.user} />
-                <span className="PredictionClosest-value">{num(row.value) + unit}</span>
-                {row.points > 0 && <span className="PredictionPoints">+{row.points}</span>}
-              </li>
-            ))}
-          </ol>
-        ) : null}
+        {this.closest(p, unit)}
       </div>
+    );
+  }
+
+  /** The guess box while picks are open; for a guest, the way to log in. */
+  guessForm(p: Prediction, mine: number | null) {
+    if (!p.can.pick) {
+      return !app.session.user && p.status === 'open' ? (
+        <Button className="Button Button--primary PredictionCard-login" onclick={() => this.login()}>
+          {t('card.log_in_to_pick')}
+        </Button>
+      ) : null;
+    }
+
+    return (
+      <form className="PredictionNumber-form" onsubmit={(e: SubmitEvent) => this.submitGuess(e)}>
+        <label className="PredictionNumber-field">
+          <span className="sr-only">{t('card.your_guess')}</span>
+          <input
+            className="FormControl"
+            type="number"
+            step="any"
+            inputmode="decimal"
+            placeholder={mine !== null ? num(mine) : tx('card.guess_placeholder')}
+            value={this.guess}
+            oninput={(e: InputEvent) => (this.guess = (e.target as HTMLInputElement).value)}
+          />
+          {p.unit && <span className="PredictionNumber-unit">{p.unit}</span>}
+        </label>
+        <Button type="submit" className="Button Button--primary" loading={this.busy} disabled={this.guess.trim() === ''}>
+          {mine !== null ? t('card.change_guess') : t('card.lock_in')}
+        </Button>
+      </form>
+    );
+  }
+
+  /** The three nearest guesses once the answer is in. */
+  closest(p: Prediction, unit: string) {
+    if (!p.stats?.closest?.length) return null;
+
+    return (
+      <ol className="PredictionClosest" aria-label={tx('card.closest')}>
+        {p.stats.closest.map((row) => (
+          <li className={row.points >= 20 ? 'is-best' : ''}>
+            <PersonLink person={row.user} />
+            <span className="PredictionClosest-value">{num(row.value) + unit}</span>
+            {row.points > 0 && <span className="PredictionPoints">+{row.points}</span>}
+          </li>
+        ))}
+      </ol>
     );
   }
 
@@ -424,7 +413,9 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
         app.alerts.show({ type: 'success' }, tx('card.deleted'));
         this.attrs.ondelete?.();
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() has already shown the error */
+      })
       .finally(() => {
         this.busy = false;
         m.redraw();
@@ -449,7 +440,9 @@ export default class PredictionCard extends Component<PredictionCardAttrs> {
   run(promise: Promise<unknown>) {
     this.busy = true;
     promise
-      .catch(() => {})
+      .catch(() => {
+        /* call() has already shown the error */
+      })
       .finally(() => {
         this.busy = false;
         m.redraw();

@@ -5,8 +5,6 @@ import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import extractText from 'flarum/common/utils/extractText';
 import type Mithril from 'mithril';
 
-declare const m: Mithril.Static;
-
 const t = (key: string, params: Record<string, any> = {}) => app.translator.trans(`ernestdefoe-predictions.admin.season.${key}`, params);
 
 interface Season {
@@ -46,7 +44,7 @@ export default class SeasonPanel extends Component {
     if (!this.seasons) return <LoadingIndicator />;
     const current = this.seasons.find((s) => s.id === this.current);
     const date = (iso: string) => new Date(iso).toLocaleDateString();
-    const count = Number(app.data.settings['ernestdefoe-predictions.oracle_count'] ?? 3);
+    const count = Number(app.data.settings['ernestdefoe-predictions.oracle_count']);
 
     return (
       <div className="Form-group PredictionsSeasonPanel">
@@ -95,12 +93,18 @@ export default class SeasonPanel extends Component {
     if (!confirm(extractText(t('confirm')))) return;
     this.busy = true;
     app
-      .request<any>({ method: 'POST', url: app.forum.attribute('apiUrl') + '/prediction-seasons', body: { name: this.name } })
+      .request<{ data: { attributes: { oraclesNamed: number } } }>({
+        method: 'POST',
+        url: app.forum.attribute('apiUrl') + '/prediction-seasons',
+        body: { data: { type: 'prediction-seasons', attributes: { name: this.name } } },
+      })
       .then((res) => {
-        app.alerts.show({ type: 'success' }, t('ended', { count: res.oracles }));
+        app.alerts.show({ type: 'success' }, t('ended', { count: res.data.attributes.oraclesNamed }));
         this.load();
       })
-      .catch(() => {})
+      .catch(() => {
+        /* app.request has already shown the error */
+      })
       .finally(() => {
         this.busy = false;
         m.redraw();

@@ -17,8 +17,8 @@ use Flarum\Notification\NotificationSyncer;
  *  2. scores any settled prediction the queue hasn't (a worker that died, a
  *     forum without one running). Scorer is idempotent, so a duplicate is free.
  *
- * Each stamp is a conditional UPDATE (… AND locked_at IS NULL): of two runs
- * that overlap, exactly one gets the row and sends the alert.
+ * The stamp is a conditional UPDATE (… AND locked_at IS NULL), and the
+ * schedule runs withoutOverlapping(), so each lock is announced once.
  */
 class TickCommand extends AbstractCommand
 {
@@ -38,20 +38,8 @@ class TickCommand extends AbstractCommand
     protected function fire(): int
     {
         $now = Carbon::now();
-        $locked = 0;
 
-        $due = Prediction::query()->whereNull('locked_at')->where('lock_at', '<=', $now)->orderBy('lock_at')->limit(500)->pluck('id');
-        foreach ($due as $id) {
-            if (Prediction::query()->whereKey($id)->whereNull('locked_at')->update(['locked_at' => $now]) !== 1) {
-                continue;
-            }
-            $locked++;
-
-            $prediction = Prediction::query()->with('user')->find($id);
-            if ($prediction && $prediction->user && ! $prediction->isSettled()) {
-                $this->notifications->sync(new PredictionLockedBlueprint($prediction), [$prediction->user]);
-            }
-        }
+        $locked = $this->lockDue($now);
 
         $waiting = Prediction::query()
             ->whereNotNull('settled_at')
@@ -65,5 +53,29 @@ class TickCommand extends AbstractCommand
         $this->info("Locked {$locked}, scored {$waiting->count()}.");
 
         return 0;
+    }
+
+    /**
+     * Stamps up to 500 due predictions in one UPDATE (only rows still unstamped), then
+     * tells each creator whose prediction is still unsettled. Three queries for the
+     * batch, then one alert each (each alert is about a different prediction).
+     */
+    private function lockDue(Carbon $now): int
+    {
+        $due = Prediction::query()->whereNull('locked_at')->where('lock_at', '<=', $now)->orderBy('lock_at')->limit(500)->pluck('id');
+        if ($due->isEmpty()) {
+            return 0;
+        }
+
+        Prediction::query()->whereIn('id', $due)->whereNull('locked_at')->update(['locked_at' => $now]);
+
+        $stamped = Prediction::query()->whereIn('id', $due)->where('locked_at', $now)->whereNull('settled_at')->with('user')->get();
+        foreach ($stamped as $prediction) {
+            if ($prediction->user) {
+                $this->notifications->sync(new PredictionLockedBlueprint($prediction), [$prediction->user]);
+            }
+        }
+
+        return $stamped->count();
     }
 }

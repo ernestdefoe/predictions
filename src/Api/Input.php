@@ -3,6 +3,7 @@
 namespace ErnestDefoe\Predictions\Api;
 
 use Carbon\Carbon;
+use Carbon\Exceptions\InvalidFormatException;
 use ErnestDefoe\Predictions\Prediction;
 use ErnestDefoe\Predictions\Refusal;
 
@@ -67,7 +68,8 @@ final class Input
     {
         try {
             $at = is_string($value) && $value !== '' ? Carbon::parse($value)->utc() : null;
-        } catch (\Throwable) {
+        } catch (InvalidFormatException) {
+            // Not a date: refused below like a missing one.
             $at = null;
         }
 

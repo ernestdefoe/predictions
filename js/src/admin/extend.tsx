@@ -10,7 +10,8 @@ function groupOptions(): Record<string, string> {
   const options: Record<string, string> = { '': String(t('settings.oracle_group_none')) };
   for (const group of app.store.all<any>('groups')) {
     if (['1', '2', '3', '4'].includes(group.id())) continue;
-    options[group.id()] = group.namePlural();
+    // "g5", not "5": integer-like keys are sorted first, which would drop "No group" to the bottom.
+    options['g' + group.id()] = group.namePlural();
   }
   return options;
 }
@@ -35,7 +36,6 @@ export default [
         setting: setting('oracle_group'),
         type: 'select',
         options: groupOptions(),
-        default: '',
         label: t('settings.oracle_group'),
         help: t('settings.oracle_group_help'),
       }),
@@ -43,10 +43,32 @@ export default [
     )
     .setting(
       () =>
-        'fof-badges' in ((globalThis as any).flarum?.extensions || {})
+        'fof-badges' in flarum.extensions
           ? { setting: setting('oracle_badge'), type: 'boolean', label: t('settings.oracle_badge'), help: t('settings.oracle_badge_help') }
           : null,
       60
+    )
+    .setting(
+      () => ({
+        setting: setting('min_pickers'),
+        type: 'number',
+        min: 1,
+        max: 100,
+        label: t('settings.min_pickers'),
+        help: t('settings.min_pickers_help'),
+      }),
+      58
+    )
+    .setting(
+      () => ({
+        setting: setting('daily_limit'),
+        type: 'number',
+        min: 1,
+        max: 500,
+        label: t('settings.daily_limit'),
+        help: t('settings.daily_limit_help'),
+      }),
+      56
     )
     .customSetting(() => <SeasonPanel />, 50)
     .permission(
