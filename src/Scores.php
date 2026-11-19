@@ -2,6 +2,9 @@
 
 namespace ErnestDefoe\Predictions;
 
+use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Support\Str;
+
 /**
  * The season table: one row per member, rebuilt from their scored picks.
  *
@@ -10,6 +13,30 @@ namespace ErnestDefoe\Predictions;
  */
 class Scores
 {
+    /** Bumped whenever any season row changes: the cached all-time board (StandingResource) is keyed by it. */
+    public const VERSION = 'ernestdefoe-predictions.scores-version';
+
+    public function __construct(private readonly Repository $cache)
+    {
+    }
+
+    public function version(): string
+    {
+        return (string) $this->cache->rememberForever(self::VERSION, fn () => Str::random(8));
+    }
+
+    /** A member's season rows go (their account is being deleted). */
+    public function forgetMember(int $userId): void
+    {
+        Score::query()->where('user_id', $userId)->delete();
+        $this->changed();
+    }
+
+    private function changed(): void
+    {
+        $this->cache->forever(self::VERSION, Str::random(8));
+    }
+
     /** @param list<int> $userIds */
     public function rebuild(int $seasonId, array $userIds): void
     {
@@ -52,6 +79,7 @@ class Scores
                 Score::query()->upsert(array_values($totals), ['season_id', 'user_id'], ['points', 'hits', 'settled', 'streak', 'best_streak']);
             }
         }
+        $this->changed();
     }
 
     /** Everyone with a scored pick in a prediction: used when one is deleted after scoring. */

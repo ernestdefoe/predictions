@@ -52,9 +52,10 @@ class BadgeAward implements OracleBadge
 
         if (! $badge) {
             $name = (string) $this->translator->trans('ernestdefoe-predictions.lib.oracle');
+            // "oracle", or "oracle-xxxx" when another badge has it (a few tries, then a longer suffix).
             $slug = 'oracle';
-            while (Badge::query()->where('slug', $slug)->exists()) {
-                $slug = 'oracle-'.Str::lower(Str::random(4));
+            for ($try = 0; $try < 3 && Badge::query()->where('slug', $slug)->exists(); $try++) {
+                $slug = 'oracle-'.Str::lower(Str::random($try < 2 ? 4 : 12));
             }
 
             $badge = new Badge();

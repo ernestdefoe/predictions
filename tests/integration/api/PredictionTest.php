@@ -79,8 +79,13 @@ class PredictionTest extends TestCase
                 $body['kind'] = $body['type'];
                 unset($body['type']);
             }
+            $relationships = null;
+            if (array_key_exists('discussionId', $body)) {
+                $relationships = ['discussion' => ['data' => ['type' => 'discussions', 'id' => (string) $body['discussionId']]]];
+                unset($body['discussionId']);
+            }
 
-            return ['data' => array_filter(['type' => $m[1], 'id' => $m[2] ?? null, 'attributes' => $body], fn ($v) => $v !== null)];
+            return ['data' => array_filter(['type' => $m[1], 'id' => $m[2] ?? null, 'attributes' => $body, 'relationships' => $relationships], fn ($v) => $v !== null)];
         }
 
         return $body;
@@ -100,6 +105,31 @@ class PredictionTest extends TestCase
         }
 
         return array_map(fn ($pick) => $names[$pick['relationships']['user']['data']['id']], $json['data']);
+    }
+
+    /**
+     * The leaderboard as rows of [username, rank, points, oracle], the viewer's own
+     * row (asked for on its own, as the page does) and the meta.
+     *
+     * @return array{rows: list<array{string, int, int, bool}>, me: array<string, mixed>|null, meta: array<string, mixed>}
+     */
+    private function board(int $as, string $season = '', int $limit = 50): array
+    {
+        $ask = function (array $filter, int $limit) use ($as) {
+            [$status, $json] = $this->call('GET', '/api/prediction-standings?'.http_build_query(['filter' => array_filter($filter), 'page' => ['limit' => $limit], 'include' => 'user']), $as);
+            $this->assertSame(200, $status, json_encode($json));
+            $names = array_column(array_map(fn ($u) => [$u['id'], $u['attributes']['username']], $json['included'] ?? []), 1, 0);
+
+            return [array_map(fn ($row) => ['user' => $names[$row['relationships']['user']['data']['id']]] + $row['attributes'], $json['data']), $json['meta']];
+        };
+        [$rows, $meta] = $ask(['season' => $season], $limit);
+        [$mine] = $ask(['season' => $season, 'user' => $as], 1);
+
+        return [
+            'rows' => array_map(fn ($r) => [$r['user'], $r['rank'], $r['points'], $r['oracle']], $rows),
+            'me' => $mine[0] ?? null,
+            'meta' => $meta,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -236,6 +266,12 @@ class PredictionTest extends TestCase
         $this->assertSame(0, $this->database()->table('notifications')->where('user_id', 3)->where('is_deleted', 0)->count());
     }
 
+    private function tick(): void
+    {
+        $this->app()->getContainer()->make(\ErnestDefoe\Predictions\Console\TickCommand::class)
+            ->run(new \Symfony\Component\Console\Input\ArrayInput([]), new \Symfony\Component\Console\Output\NullOutput());
+    }
+
     #[Test]
     public function the_scheduler_locks_once_and_catches_up_scoring()
     {
@@ -268,8 +304,8 @@ class PredictionTest extends TestCase
             $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
         }
 
-        [, $board] = $this->call('GET', '/api/prediction-leaderboard', 3);
-        $this->assertSame(['dana', 'lee', 'sam'], array_map(fn ($r) => $r['user']['username'], $board['rows']));
+        $board = $this->board(3);
+        $this->assertSame(['dana', 'lee', 'sam'], array_column($board['rows'], 0));
         $this->assertSame(1, $board['me']['rank']);
         $this->assertSame(1.0, (float) $board['me']['hitRate']);
         $this->assertSame(2, $board['me']['streak']);
@@ -279,13 +315,55 @@ class PredictionTest extends TestCase
         $this->assertSame(201, $status);
         $this->assertSame(2, $json['data']['oraclesNamed']); // sam scored nothing
 
-        [, $board] = $this->call('GET', '/api/prediction-leaderboard', 3);
-        $this->assertSame('Bowl season', $board['season']['name']);
+        $board = $this->board(3);
+        $this->assertSame('Bowl season', $board['meta']['season']['name']);
+        $this->assertSame($board['meta']['season']['id'], $board['meta']['currentSeasonId']);
+        $this->assertCount(2, $board['meta']['seasons']);
         $this->assertSame([], $board['rows']);
-        [, $old] = $this->call('GET', '/api/prediction-leaderboard?season=1', 3);
-        $this->assertSame('dana', $old['oracles'][0]['user']['username']);
-        [, $all] = $this->call('GET', '/api/prediction-leaderboard?season=all', 3);
-        $this->assertSame(3, count($all['rows']));
+        $this->assertNull($board['me']);
+        $old = $this->board(3, '1');
+        $this->assertSame([['dana', 1, 30, true], ['lee', 2, 13, true], ['sam', 3, 0, false]], $old['rows']);
+        $all = $this->board(3, 'all');
+        $this->assertSame(['dana', 'lee', 'sam'], array_column($all['rows'], 0));
+        $this->assertNull($all['me']['streak']); // all-time totals have no running streak
+    }
+
+    #[Test]
+    public function the_cached_all_time_board_follows_every_new_result()
+    {
+        $settle = function (string $title, int $winner) {
+            $p = $this->create(['title' => $title]);
+            foreach ([3, 4, 5] as $user) {
+                $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['optionId' => $p['options'][$user === $winner ? 0 : 1]['id']]);
+            }
+            $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
+        };
+
+        $settle('First call', 3);
+        $this->assertSame('dana', $this->board(3, 'all')['rows'][0][0]);
+        $this->assertSame('dana', $this->board(3, 'all')['rows'][0][0]); // the cached answer
+        $settle('Second call', 4);
+        $settle('Third call', 4);
+        $this->assertSame('lee', $this->board(3, 'all')['rows'][0][0]);
+        $this->assertSame(2, $this->board(3, 'all')['me']['rank']);
+    }
+
+    #[Test]
+    public function the_leaderboard_ranks_ties_together_across_pages_and_finds_the_viewer_off_the_board()
+    {
+        // dana and lee both hit; sam misses.
+        $p = $this->create();
+        foreach ([3 => 0, 4 => 0, 5 => 1] as $user => $option) {
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['optionId' => $p['options'][$option]['id']]);
+        }
+        $this->call('POST', "/api/predictions/{$p['id']}/settle", 2, ['optionId' => $p['options'][0]['id']]);
+
+        $this->assertSame([[1, 'dana']], array_map(fn ($r) => [$r[1], $r[0]], $this->board(5, '', 1)['rows']));
+        // The second page starts with lee, tied with dana: the same rank, not 2.
+        [, $json] = $this->call('GET', '/api/prediction-standings?page[offset]=1&page[limit]=2', 5);
+        $this->assertSame([1, 3], array_map(fn ($row) => $row['attributes']['rank'], $json['data']));
+        // sam is off a one-row board, and still gets his own row and rank.
+        $this->assertSame(3, $this->board(5, '', 1)['me']['rank']);
     }
 
     #[Test]
@@ -348,7 +426,7 @@ class PredictionTest extends TestCase
         $this->call('POST', "/api/predictions/{$p['id']}/pick", 3, ['optionId' => $p['options'][0]['id']]);
 
         [$status, $json] = $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['lockAt' => Carbon::now()->addDays(3)->toIso8601String()]);
-        $this->assertSame('predictions_lock_later', $json['errors'][0]['code']);
+        $this->assertSame('predictions_lock_later', $json['errors'][0]['code'], json_encode($json));
         $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['lockAt' => Carbon::now()->addHours(2)->toIso8601String()])[0]);
         $this->assertSame(200, $this->call('PATCH', "/api/predictions/{$p['id']}", 1, ['lockAt' => Carbon::now()->addDays(3)->toIso8601String()])[0]);
     }
@@ -460,8 +538,15 @@ class PredictionTest extends TestCase
         };
         $members = fn () => $this->database()->table('group_user')->where('group_id', 10)->orderBy('user_id')->pluck('user_id')->map(fn ($id) => (int) $id)->all();
 
+        $changed = [];
+        $this->app()->getContainer()->make(\Illuminate\Contracts\Events\Dispatcher::class)
+            ->listen(\Flarum\User\Event\GroupsChanged::class, function ($event) use (&$changed) {
+                $changed[] = $event->user->id;
+            });
+
         $season(3);
         $this->assertSame([3, 6], $members());
+        $this->assertSame([3], $changed); // the one membership this changed, announced
         $season(6); // riley wins: she was already in it, so it isn't recorded as ours
         $this->assertSame([6], $members());
         $season(4);
@@ -477,15 +562,64 @@ class PredictionTest extends TestCase
     public function deleting_a_member_recounts_what_they_picked()
     {
         $p = $this->create(['type' => 'number', 'title' => 'Guess', 'options' => null]);
+        $c = $this->create(['title' => 'Choice']);
         foreach ([3 => 10, 4 => 20] as $user => $value) {
             $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['value' => $value]);
+            $this->call('POST', "/api/predictions/{$c['id']}/pick", $user, ['optionId' => $c['options'][1]['id']]);
         }
+        $this->expire($p['id']);
+        $this->tick();
+        $this->assertSame(2, Prediction::query()->find($p['id'])->stats['count']);
+
         $this->assertSame(204, $this->send($this->request('DELETE', '/api/users/4', ['authenticatedAs' => 1]))->getStatusCode());
 
         $row = Prediction::query()->find($p['id']);
         $this->assertSame(1, $row->picks_count);
-        $this->assertSame(1, $row->stats['count']);
+        $this->assertSame(1, $row->stats['count']); // the queued job re-worked them
         $this->assertSame(10.0, (float) $row->stats['max']);
+        $this->assertSame(1, Prediction::query()->find($c['id'])->picks_count);
+        $this->assertSame(1, (int) $this->database()->table('prediction_options')->where('id', $c['options'][1]['id'])->value('picks_count'));
+    }
+
+    #[Test]
+    public function number_stats_wait_for_the_lock_and_count_every_guess()
+    {
+        $p = $this->create(['type' => 'number', 'title' => 'Guess', 'options' => null]);
+        foreach ([3 => 10, 4 => 20, 5 => 30] as $user => $value) {
+            $this->call('POST', "/api/predictions/{$p['id']}/pick", $user, ['value' => $value]);
+        }
+        // Open: no chart to pick from, and a pick costs the same however many came before it.
+        [, $json] = $this->call('GET', "/api/predictions/{$p['id']}", 6);
+        $this->assertNull($json['data']['stats']);
+        $this->assertSame(3, $json['data']['picksCount']);
+
+        $this->expire($p['id']);
+        $this->tick();
+        [, $json] = $this->call('GET', "/api/predictions/{$p['id']}", 6);
+        $this->assertSame(['count' => 3, 'avg' => 20.0, 'median' => 20.0], ['count' => $json['data']['stats']['count'], 'avg' => (float) $json['data']['stats']['avg'], 'median' => (float) $json['data']['stats']['median']]);
+    }
+
+    #[Test]
+    public function editing_without_changing_the_choices_keeps_the_creators_own_pick()
+    {
+        $p = $this->create();
+        $this->call('POST', "/api/predictions/{$p['id']}/pick", 2, ['optionId' => $p['options'][1]['id']]);
+        // The form sends the same choices back with a new description.
+        [$status] = $this->call('PATCH', "/api/predictions/{$p['id']}", 2, ['description' => 'Updated.', 'options' => array_column($p['options'], 'label')]);
+        $this->assertSame(200, $status);
+        $this->assertSame(1, Pick::query()->where('user_id', 2)->count());
+        $this->assertSame(array_column($p['options'], 'id'), $this->database()->table('prediction_options')->orderBy('position')->pluck('id')->map(fn ($id) => (int) $id)->all());
+    }
+
+    #[Test]
+    public function a_field_rule_says_what_is_wrong()
+    {
+        [$status, $json] = $this->call('POST', '/api/predictions', 2, [
+            'type' => 'choice', 'title' => 'x', 'options' => ['A', 'B'], 'lockAt' => Carbon::now()->addDay()->toIso8601String(),
+        ]);
+        $this->assertSame(422, $status);
+        $this->assertSame('validation_error', $json['errors'][0]['code']);
+        $this->assertNotEmpty($json['errors'][0]['detail']);
     }
 
     #[Test]

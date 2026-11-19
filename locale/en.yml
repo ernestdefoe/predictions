@@ -140,6 +140,7 @@ ernestdefoe-predictions:
       hidden: Picks stay hidden until it locks.
       none: Nobody has picked yet.
       nobody: Nobody picked this.
+      more: Show more
 
     board:
       season: Season
@@ -179,11 +180,9 @@ ernestdefoe-predictions:
       predictions_bad_option: Pick one of the choices.
       predictions_bad_value: Enter a number.
       predictions_bad_title: The question needs 3 to 150 characters.
-      predictions_bad_description: The details can be up to 1,000 characters.
       predictions_bad_type: Choose a kind of prediction.
       predictions_bad_options: Give 2 to 12 different choices, each up to 80 characters.
       predictions_bad_lock: The lock time has to be in the future, and no more than two years away.
-      predictions_bad_unit: The unit can be up to 24 characters.
       predictions_bad_tolerance: The range has to be a number, zero or more.
       predictions_bad_discussion: You can only add a prediction to your own discussion.
       predictions_busy: Someone else is changing this prediction right now. Try again in a moment.

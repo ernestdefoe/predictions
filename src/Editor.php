@@ -10,45 +10,44 @@ use Flarum\User\Exception\PermissionDeniedException;
 use Flarum\User\User;
 
 /**
- * Opening, editing and deleting a prediction (the resource's Create, Update
- * and Delete endpoints hand their attributes here).
+ * Opening, editing and deleting a prediction (PredictionResource's Create,
+ * Update and Delete). The resource's fields have validated and set the input
+ * on the model; this checks what depends on the whole row.
  *
  * The creator edits while it's open, a moderator until it's settled. The
- * choices (and the type) only change while nobody else has picked; once
+ * choices (and the kind) only change while nobody else has picked; once
  * someone has, the question and hidden picks only change by a moderator's
  * hand, and only a moderator can push the lock later. "Someone else has
  * picked" is always counted under the prediction's RowLock.
  */
 class Editor
 {
+    /** The columns an edit may change (each was validated by its field). */
+    private const EDITABLE = ['type', 'title', 'description', 'unit', 'tolerance', 'hide_picks', 'lock_at'];
+
     public function __construct(
         private readonly RowLock $lock,
-        private readonly Picks $picks,
         private readonly Scores $scores,
         private readonly SettingsRepositoryInterface $settings,
     ) {
     }
 
-    /** @param array<string, mixed> $input */
-    public function create(Prediction $prediction, User $actor, array $input): Prediction
+    public function create(Prediction $prediction, User $actor): Prediction
     {
         $actor->assertCan(Settings::VIEW);
-        $this->assertUnderDailyLimit($actor);
+        $this->assertMayAttach($prediction->discussion_id, $actor);
 
         $prediction->user_id = $actor->id;
-        $prediction->type = Input::type($input['type'] ?? null);
-        $prediction->title = Input::title($input['title'] ?? null);
-        $prediction->description = Input::description($input['description'] ?? null);
-        $prediction->lock_at = Input::lockAt($input['lockAt'] ?? null);
-        $prediction->hide_picks = (bool) ($input['hidePicks'] ?? false);
-        $prediction->discussion_id = $this->discussion($input['discussionId'] ?? null, $actor);
-        $labels = $this->labels($prediction, $input);
-        if ($prediction->type === Prediction::NUMBER) {
-            $prediction->unit = Input::unit($input['unit'] ?? null);
-            $prediction->tolerance = Input::tolerance($input['tolerance'] ?? null);
+        $prediction->lock_at = Input::lockAt($prediction->lock_at);
+        $labels = $this->labels($prediction);
+        if ($prediction->type !== Prediction::NUMBER) {
+            $prediction->unit = null;
+            $prediction->tolerance = null;
         }
 
-        $prediction->getConnection()->transaction(function () use ($prediction, $labels) {
+        // One create per member at a time, so two at once can't both slip under the daily limit.
+        $this->lock->run('member.'.$actor->id, function () use ($prediction, $labels, $actor) {
+            $this->assertUnderDailyLimit($actor);
             $prediction->save();
             $this->replaceOptions($prediction, $labels);
         });
@@ -56,30 +55,34 @@ class Editor
         return $prediction;
     }
 
-    /** @param array<string, mixed> $input */
-    public function update(Prediction $prediction, User $actor, array $input): Prediction
+    public function update(Prediction $edited, User $actor): Prediction
     {
-        return $this->lock->run('prediction.'.$prediction->id, function () use ($prediction, $actor, $input) {
+        // What the request changed, read through the model's casts (getDirty() holds raw column values).
+        $changes = [];
+        foreach (array_intersect(array_keys($edited->getDirty()), self::EDITABLE) as $key) {
+            $changes[$key] = $edited->getAttribute($key);
+        }
+
+        return $this->lock->run('prediction.'.$edited->id, function () use ($edited, $changes, $actor) {
             // Re-read and count under the lock: a pick or a settle may have landed since the endpoint's check.
-            $row = Prediction::query()->whereKey($prediction->id)->lockForUpdate()->firstOrFail();
+            $row = Prediction::query()->whereKey($edited->id)->lockForUpdate()->firstOrFail();
             if (! $row->canEdit($actor)) {
                 throw new PermissionDeniedException();
             }
             $others = $this->others($row, $actor);
 
-            $this->wording($row, $actor, $input, $others);
-            $this->lockTime($row, $actor, $input, $others);
-            if (array_key_exists('discussionId', $input)) {
-                $row->discussion_id = $this->discussion($input['discussionId'], $actor);
-            }
-            $labels = $this->kind($row, $actor, $input, $others);
+            $this->wording($row, $actor, $changes, $others);
+            $this->lockTime($row, $actor, $changes, $others, $edited->lockNow);
+            $labels = $this->kind($row, $actor, $changes, $edited->pendingLabels, $others);
             $row->save();
 
             if ($labels !== null) {
                 $this->replaceOptions($row, $labels);
                 // The actor's own pick (the only one there can be) pointed at the old choices.
                 Pick::query()->where('prediction_id', $row->id)->delete();
-                $this->picks->recount($row);
+                $row->picks_count = 0;
+                $row->stats = null;
+                $row->save();
             }
 
             return $row;
@@ -115,40 +118,56 @@ class Editor
     }
 
     /**
+     * Attached only to a discussion the member started (or any, for a moderator)
+     * and can reply to. The relationship field has already checked it's visible.
+     */
+    private function assertMayAttach(?int $discussionId, User $actor): void
+    {
+        if ($discussionId === null) {
+            return;
+        }
+
+        $discussion = Discussion::query()->whereVisibleTo($actor)->find($discussionId);
+        if (! $discussion || ! $actor->can('reply', $discussion)
+            || ($discussion->user_id !== $actor->id && ! $actor->hasPermission(Settings::MODERATE))) {
+            throw new Refusal('predictions_bad_discussion');
+        }
+    }
+
+    /**
      * The question, its details and whether picks are hidden. Once others have
      * picked, the question they answered (and hidden picks) only changes by a
      * moderator's hand; sending them unchanged is fine.
      *
-     * @param array<string, mixed> $input
+     * @param array<string, mixed> $changes
      */
-    private function wording(Prediction $row, User $actor, array $input, int $others): void
+    private function wording(Prediction $row, User $actor, array $changes, int $others): void
     {
         $frozen = ! $row->canEditWording($actor, $others);
-        if (array_key_exists('title', $input)) {
-            $title = Input::title($input['title']);
-            if ($frozen && $title !== $row->title) {
+        if (array_key_exists('title', $changes)) {
+            if ($frozen && $changes['title'] !== $row->title) {
                 throw new Refusal('predictions_frozen');
             }
-            $row->title = $title;
+            $row->title = $changes['title'];
         }
-        if (array_key_exists('description', $input)) {
-            $row->description = Input::description($input['description']);
+        if (array_key_exists('description', $changes)) {
+            $row->description = $changes['description'];
         }
-        if (array_key_exists('hidePicks', $input) && ! $row->isLocked()) {
-            if ($frozen && (bool) $input['hidePicks'] !== $row->hide_picks) {
+        if (array_key_exists('hide_picks', $changes) && ! $row->isLocked()) {
+            if ($frozen && (bool) $changes['hide_picks'] !== $row->hide_picks) {
                 throw new Refusal('predictions_frozen');
             }
-            $row->hide_picks = (bool) $input['hidePicks'];
+            $row->hide_picks = (bool) $changes['hide_picks'];
         }
     }
 
-    /** @param array<string, mixed> $input */
-    private function lockTime(Prediction $row, User $actor, array $input, int $others): void
+    /** @param array<string, mixed> $changes */
+    private function lockTime(Prediction $row, User $actor, array $changes, int $others, bool $now): void
     {
-        if (! empty($input['lockNow'])) {
+        if ($now) {
             $row->lock_at = Carbon::now();
-        } elseif (array_key_exists('lockAt', $input) && ! $row->isLocked()) {
-            $lockAt = Input::lockAt($input['lockAt']);
+        } elseif (array_key_exists('lock_at', $changes) && ! $row->isLocked()) {
+            $lockAt = Input::lockAt($changes['lock_at']);
             // Once others have picked, only a moderator can push the lock later: a creator
             // could otherwise keep picks open after the game started and pick knowing the score.
             if ($others > 0 && $lockAt->gt($row->lock_at) && ! $row->canModerate($actor)) {
@@ -162,12 +181,18 @@ class Editor
      * The kind, the choices, the unit and the range: only while nobody else has picked.
      * Returns the new choices when they change (null when they don't).
      *
-     * @param array<string, mixed> $input
+     * @param array<string, mixed> $changes
+     * @param list<string>|null $pending
      * @return list<string>|null
      */
-    private function kind(Prediction $row, User $actor, array $input, int $others): ?array
+    private function kind(Prediction $row, User $actor, array $changes, ?array $pending, int $others): ?array
     {
-        if (! array_intersect(['options', 'type', 'unit', 'tolerance'], array_keys($input))) {
+        // The form sends the choices back with every edit: the same list in the same order is no change.
+        if ($pending !== null && ! array_key_exists('type', $changes)
+            && Input::options($pending) === $row->options()->orderBy('position')->pluck('label')->all()) {
+            $pending = null;
+        }
+        if (! array_intersect(['type', 'unit', 'tolerance'], array_keys($changes)) && $pending === null) {
             return null;
         }
         if (! $row->canEditOptions($actor, $others)) {
@@ -175,28 +200,26 @@ class Editor
         }
 
         $labels = null;
-        $type = array_key_exists('type', $input) ? Input::type($input['type']) : $row->type;
-        if ($type !== $row->type || array_key_exists('options', $input)) {
+        $type = $changes['type'] ?? $row->type;
+        if ($type !== $row->type || $pending !== null) {
             $row->type = $type;
-            $labels = $this->labels($row, $input + ['options' => $row->options()->pluck('label')->all()]);
+            $row->pendingLabels = $pending ?? $row->options()->pluck('label')->all();
+            $labels = $this->labels($row);
         }
         $number = $row->type === Prediction::NUMBER;
-        $row->unit = $number ? Input::unit($input['unit'] ?? $row->unit) : null;
-        $row->tolerance = $number ? Input::tolerance(array_key_exists('tolerance', $input) ? $input['tolerance'] : $row->tolerance) : null;
+        $row->unit = $number ? ($changes['unit'] ?? $row->unit) : null;
+        $row->tolerance = $number ? (array_key_exists('tolerance', $changes) ? $changes['tolerance'] : $row->tolerance) : null;
 
         return $labels;
     }
 
-    /**
-     * @param array<string, mixed> $input
-     * @return list<string>
-     */
-    private function labels(Prediction $prediction, array $input): array
+    /** @return list<string> */
+    private function labels(Prediction $prediction): array
     {
         return match ($prediction->type) {
             Prediction::YESNO => ['Yes', 'No'],
             Prediction::NUMBER => [],
-            default => Input::options($input['options'] ?? null),
+            default => Input::options($prediction->pendingLabels),
         };
     }
 
@@ -211,22 +234,5 @@ class Editor
                 array_keys($labels),
             ));
         }
-    }
-
-    /** Attach to a discussion its author (or a moderator) can see and reply to. Null detaches. */
-    private function discussion(mixed $value, User $actor): ?int
-    {
-        $id = Input::id($value);
-        if ($id === null) {
-            return null;
-        }
-
-        $discussion = Discussion::query()->whereVisibleTo($actor)->find($id);
-        if (! $discussion || ! $actor->can('reply', $discussion)
-            || ($discussion->user_id !== $actor->id && ! $actor->hasPermission(Settings::MODERATE))) {
-            throw new Refusal('predictions_bad_discussion');
-        }
-
-        return $discussion->id;
     }
 }

@@ -68,17 +68,7 @@ class Settler
         if ($void) {
             return;
         }
-        if ($row->type === Prediction::NUMBER) {
-            if ($value === null || ! is_finite($value) || abs($value) > 1e12) {
-                throw new Refusal('predictions_bad_value');
-            }
-            $row->answer_value = $value;
-        } else {
-            if ($optionId === null || ! $row->options()->whereKey($optionId)->exists()) {
-                throw new Refusal('predictions_bad_option');
-            }
-            $row->correct_option_id = $optionId;
-        }
+        [$row->correct_option_id, $row->answer_value] = $row->checkedAnswer($optionId, $value);
     }
 
     /**

@@ -26,7 +26,7 @@ class PageContent
     public function __invoke(Document $document, ServerRequestInterface $request): Document
     {
         $id = (int) Arr::get($request->getQueryParams(), 'id');
-        $prediction = $id ? Prediction::query()->visibleTo(RequestUtil::getActor($request))->find($id) : null;
+        $prediction = $id ? Prediction::query()->whereVisibleTo(RequestUtil::getActor($request))->find($id) : null;
 
         if ($prediction) {
             $document->title = $prediction->title;

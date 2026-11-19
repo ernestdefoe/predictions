@@ -8,6 +8,7 @@ import Avatar from 'flarum/common/components/Avatar';
 import Tooltip from 'flarum/common/components/Tooltip';
 import stringToColor from 'flarum/common/utils/stringToColor';
 import type Mithril from 'mithril';
+import type User from 'flarum/common/models/User';
 import SettleModal from './SettleModal';
 import { openForm, optionLabel, percent, predictionUrl, t, tx, type Option, type Person, type Prediction } from '../api';
 import { countdown, num, pick, remove, save, when } from '../data';
@@ -49,15 +50,19 @@ export class PersonLink extends Component<{ person: Person; avatar?: boolean }> 
   }
 }
 
-/** Avatar takes a User model; ours is plain JSON, so it gets the few methods Avatar calls. */
-export function fakeUser(p: Person): any {
-  return {
+/**
+ * Avatar takes a User model; ours is plain JSON (and the "closest" faces are never in the
+ * store), so it gets the few methods Avatar calls, typed as the User it stands in for.
+ */
+export function fakeUser(p: Person): User {
+  const stand: Pick<User, 'displayName' | 'username' | 'avatarUrl' | 'color' | 'id'> = {
     displayName: () => p.displayName,
     username: () => p.username,
     avatarUrl: () => p.avatarUrl,
     color: () => '#' + stringToColor(p.username),
     id: () => String(p.id),
   };
+  return stand as User;
 }
 
 export default class PredictionCard extends Component<PredictionCardAttrs> {

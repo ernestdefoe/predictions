@@ -1,5 +1,6 @@
 import app from 'flarum/admin/app';
 import Extend from 'flarum/common/extenders';
+import Group from 'flarum/common/models/Group';
 import SeasonPanel from './SeasonPanel';
 
 const t = (key: string) => app.translator.trans(`ernestdefoe-predictions.admin.${key}`, {}, true);
@@ -8,8 +9,10 @@ const setting = (key: string) => `ernestdefoe-predictions.${key}`;
 /** Groups an Oracle can be put in: not Admin, Guest, Member or Moderator (Seasons::NEVER_ORACLE_GROUPS). */
 function groupOptions(): Record<string, string> {
   const options: Record<string, string> = { '': String(t('settings.oracle_group_none')) };
-  for (const group of app.store.all<any>('groups')) {
-    if (['1', '2', '3', '4'].includes(group.id())) continue;
+  // Core has no constant for Moderators' id (4); the server keeps the same list.
+  const never = [Group.ADMINISTRATOR_ID, Group.GUEST_ID, Group.MEMBER_ID, '4'];
+  for (const group of app.store.all<Group>('groups')) {
+    if (never.includes(group.id()!)) continue;
     // "g5", not "5": integer-like keys are sorted first, which would drop "No group" to the bottom.
     options['g' + group.id()] = group.namePlural();
   }

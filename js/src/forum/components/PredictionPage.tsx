@@ -3,6 +3,7 @@ import Page from 'flarum/common/components/Page';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import Link from 'flarum/common/components/Link';
 import Icon from 'flarum/common/components/Icon';
+import Button from 'flarum/common/components/Button';
 import type Mithril from 'mithril';
 import PredictionCard, { PersonLink } from './PredictionCard';
 import { PageStructure, IndexSidebar } from './PredictionsPage';
@@ -17,6 +18,8 @@ export default class PredictionPage extends Page {
   prediction: Prediction | null = null;
   missing = false;
   picks: PickRow[] | null = null;
+  morePicks = false;
+  loadingPicks = false;
   picksFor = '';
 
   oninit(vnode: Mithril.Vnode) {
@@ -40,11 +43,25 @@ export default class PredictionPage extends Page {
     const key = p ? `${p.id}:${p.picksVisible}:${p.picksCount}:${p.status}:${p.scored}` : '';
     if (p && p.picksVisible && key !== this.picksFor) {
       this.picksFor = key;
-      pickers(p.id).then((rows) => {
-        this.picks = rows;
+      this.loadPicks(p, 0);
+    }
+  }
+
+  /** A page of who picked what (100 at a time), from the start or after the ones shown. */
+  loadPicks(p: Prediction, offset: number) {
+    this.loadingPicks = true;
+    pickers(p.id, offset)
+      .then(({ rows, more }) => {
+        this.picks = offset ? [...(this.picks || []), ...rows] : rows;
+        this.morePicks = more;
+      })
+      .catch(() => {
+        /* call() has already shown the error */
+      })
+      .finally(() => {
+        this.loadingPicks = false;
         m.redraw();
       });
-    }
   }
 
   view() {
@@ -74,6 +91,11 @@ export default class PredictionPage extends Page {
       <section className="PredictionWho">
         <h3>{t('single.who')}</h3>
         {p.type === 'number' ? this.guesses(p, this.picks) : p.options.map((option, i) => this.group(p, option, i, this.picks!))}
+        {this.morePicks && (
+          <Button className="Button PredictionWho-more" loading={this.loadingPicks} onclick={() => this.loadPicks(p, this.picks!.length)}>
+            {t('single.more')}
+          </Button>
+        )}
       </section>
     );
   }
@@ -94,14 +116,14 @@ export default class PredictionPage extends Page {
     );
   }
 
-  /** One choice and the members who picked it. */
+  /** One choice and the members who picked it (those loaded so far; the count is the whole choice's). */
   group(p: Prediction, option: Option, index: number, picks: PickRow[]) {
     const rows = picks.filter((r) => r.optionId === option.id);
     return (
       <div className={'PredictionWho-group' + (option.isCorrect ? ' is-correct' : '')}>
         <h4>
           {option.isCorrect && <Icon name="fas fa-circle-check" />} {optionLabel(p, option, index)}{' '}
-          <span className="PredictionWho-count">{tx('card.picks_short', { count: rows.length })}</span>
+          <span className="PredictionWho-count">{tx('card.picks_short', { count: option.count ?? rows.length })}</span>
         </h4>
         {rows.length ? (
           <ul className="PredictionWho-people">
@@ -112,9 +134,9 @@ export default class PredictionPage extends Page {
               </li>
             ))}
           </ul>
-        ) : (
+        ) : (option.count ?? 0) === 0 ? (
           <p className="PredictionWho-nobody">{t('single.nobody')}</p>
-        )}
+        ) : null}
       </div>
     );
   }

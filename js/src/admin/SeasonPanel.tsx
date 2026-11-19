@@ -14,6 +14,13 @@ interface Season {
   endedAt: string | null;
 }
 
+/** GET /api/prediction-standings, the parts this panel reads. */
+interface Standings {
+  data: Array<{ attributes: { points: number }; relationships: { user: { data: { id: string } } } }>;
+  included?: Array<{ id: string; attributes: { displayName: string } }>;
+  meta: { seasons: Season[]; currentSeasonId: number | null };
+}
+
 /**
  * The season box: what's running, since when, and "End this season": its
  * top predictors become Oracles and the leaderboard starts fresh.
@@ -31,13 +38,23 @@ export default class SeasonPanel extends Component {
   }
 
   load() {
-    app.request<any>({ method: 'GET', url: app.forum.attribute('apiUrl') + '/prediction-leaderboard?limit=5' }).then((board) => {
-      this.seasons = board.seasons;
-      this.current = board.currentSeasonId;
-      this.leaders = board.rows;
-      this.name = extractText(t('next_default', { number: board.seasons.length + 1 }));
-      m.redraw();
-    });
+    app
+      .request<Standings>({ method: 'GET', url: app.forum.attribute('apiUrl') + '/prediction-standings?page[limit]=5&page[total]=0' })
+      .then((doc) => {
+        // The admin bundle has no store model for standings: names come from the included members.
+        const names = new Map((doc.included || []).map((user) => [user.id, user.attributes.displayName]));
+        this.seasons = doc.meta.seasons;
+        this.current = doc.meta.currentSeasonId;
+        this.leaders = doc.data.map((row) => ({
+          user: { displayName: names.get(row.relationships.user.data.id) || '' },
+          points: row.attributes.points,
+        }));
+        this.name = extractText(t('next_default', { number: doc.meta.seasons.length + 1 }));
+        m.redraw();
+      })
+      .catch(() => {
+        /* app.request has already shown the error */
+      });
   }
 
   view() {

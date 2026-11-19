@@ -4,9 +4,9 @@ namespace ErnestDefoe\Predictions;
 
 use Carbon\Carbon;
 use Flarum\Database\AbstractModel;
+use Flarum\Database\ScopeVisibilityTrait;
 use Flarum\Discussion\Discussion;
 use Flarum\User\User;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -40,6 +40,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Prediction extends AbstractModel
 {
+    use ScopeVisibilityTrait;
+
     public const CHOICE = 'choice';
     public const YESNO = 'yesno';
     public const NUMBER = 'number';
@@ -47,6 +49,16 @@ class Prediction extends AbstractModel
 
 
     protected $table = 'predictions';
+
+    /**
+     * Input that isn't a column, set by PredictionResource's fields and read by
+     * Editor under the row lock: the new choices, and "lock picks now".
+     *
+     * @var list<string>|null
+     */
+    public ?array $pendingLabels = null;
+
+    public bool $lockNow = false;
 
     public $timestamps = true;
 
@@ -86,10 +98,26 @@ class Prediction extends AbstractModel
         return $this->hasMany(Option::class)->orderBy('position')->orderBy('id');
     }
 
-    /** @return HasMany<Pick, $this> */
-    public function picks(): HasMany
+    /**
+     * A pick or an answer for this prediction: a choice of its own for multiple choice and
+     * yes/no, a finite number (within ±1e12) for a number. Returns [optionId, value].
+     *
+     * @return array{int|null, float|null}
+     */
+    public function checkedAnswer(?int $optionId, ?float $value): array
     {
-        return $this->hasMany(Pick::class);
+        if ($this->type === self::NUMBER) {
+            if ($value === null || abs($value) > 1e12) {
+                throw new Refusal('predictions_bad_value');
+            }
+
+            return [null, $value];
+        }
+        if ($optionId === null || ! $this->options()->whereKey($optionId)->exists()) {
+            throw new Refusal('predictions_bad_option');
+        }
+
+        return [$optionId, null];
     }
 
     /** Locked by the clock, whether or not the scheduler has stamped it yet: picks are judged by this. */
@@ -179,25 +207,5 @@ class Prediction extends AbstractModel
     public function canDelete(User $actor, int $othersPicks): bool
     {
         return $this->canModerate($actor) || ($this->isOwner($actor) && $othersPicks === 0);
-    }
-
-    /**
-     * What the actor may see: the view permission, and the discussion's
-     * visibility for one attached to a discussion.
-     *
-     * @param Builder<Prediction> $query
-     */
-    public function scopeVisibleTo(Builder $query, User $actor): void
-    {
-        if (! $actor->hasPermission(Settings::VIEW)) {
-            $query->whereIn('predictions.id', []);
-
-            return;
-        }
-
-        $query->where(function (Builder $q) use ($actor) {
-            $q->whereNull('predictions.discussion_id')
-                ->orWhereIn('predictions.discussion_id', Discussion::query()->whereVisibleTo($actor)->select('discussions.id'));
-        });
     }
 }

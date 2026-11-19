@@ -52,7 +52,7 @@ class Presenter
             ->get()->keyBy('prediction_id');
 
         $closestIds = $predictions->flatMap(fn (Prediction $p) => array_column($p->stats['closest'] ?? [], 'userId'))->unique()->values();
-        $closestUsers = $closestIds->isEmpty() ? collect() : User::query()->whereIn('id', $closestIds)->get()->keyBy('id');
+        $closestUsers = $closestIds->isEmpty() ? collect() : User::query()->whereVisibleTo($actor)->whereIn('id', $closestIds)->get()->keyBy('id');
 
         // Which seasons are over, once for the page (a settled prediction in one can't be re-settled).
         $seasonIds = $predictions->pluck('season_id')->filter()->unique()->values();
@@ -72,13 +72,6 @@ class Presenter
 
         return [
             'id' => $p->id,
-            'type' => $p->type,
-            'title' => $p->title,
-            'description' => $p->description,
-            'unit' => $p->unit,
-            'tolerance' => $p->tolerance,
-            'hidePicks' => $p->hide_picks,
-            'lockAt' => $p->lock_at->toIso8601String(),
             'status' => $p->status(),
             'picksVisible' => $p->picksVisible(),
             'picksCount' => $p->picks_count,

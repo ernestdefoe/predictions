@@ -4,6 +4,7 @@ namespace ErnestDefoe\Predictions\Console;
 
 use Carbon\Carbon;
 use ErnestDefoe\Predictions\Notification\PredictionLockedBlueprint;
+use ErnestDefoe\Predictions\Picks;
 use ErnestDefoe\Predictions\Prediction;
 use ErnestDefoe\Predictions\Scorer;
 use Flarum\Console\AbstractCommand;
@@ -11,7 +12,8 @@ use Flarum\Notification\NotificationSyncer;
 
 /**
  * Every minute (the scheduler):
- *  1. stamps predictions whose lock time has passed and tells each creator
+ *  1. stamps predictions whose lock time has passed, works out the stats of
+ *     the number ones (their guesses are final now), and tells each creator
  *     it's time to settle. Picks never wait for this: they are judged by the
  *     lock time itself, under a row lock (Picks).
  *  2. scores any settled prediction the queue hasn't (a worker that died, a
@@ -25,6 +27,7 @@ class TickCommand extends AbstractCommand
     public function __construct(
         private readonly Scorer $scorer,
         private readonly NotificationSyncer $notifications,
+        private readonly Picks $picks,
     ) {
         parent::__construct();
     }
@@ -57,8 +60,10 @@ class TickCommand extends AbstractCommand
 
     /**
      * Stamps up to 500 due predictions in one UPDATE (only rows still unstamped), then
-     * tells each creator whose prediction is still unsettled. Three queries for the
-     * batch, then one alert each (each alert is about a different prediction).
+     * tells each creator whose prediction is still unsettled. Four queries for the batch
+     * (the due ids, the stamp, the stamped rows, their creators), the number stats (one
+     * read of the guesses, one write each), then one alert each: every alert is about a
+     * different prediction.
      */
     private function lockDue(Carbon $now): int
     {
@@ -70,6 +75,7 @@ class TickCommand extends AbstractCommand
         Prediction::query()->whereIn('id', $due)->whereNull('locked_at')->update(['locked_at' => $now]);
 
         $stamped = Prediction::query()->whereIn('id', $due)->where('locked_at', $now)->whereNull('settled_at')->with('user')->get();
+        $this->picks->refreshStats($stamped->where('type', Prediction::NUMBER)->modelKeys());
         foreach ($stamped as $prediction) {
             if ($prediction->user) {
                 $this->notifications->sync(new PredictionLockedBlueprint($prediction), [$prediction->user]);

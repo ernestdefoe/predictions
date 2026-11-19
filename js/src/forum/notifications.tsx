@@ -9,8 +9,10 @@ export class CalledNotification extends Notification {
     return 'fas fa-bullseye';
   }
 
+  /** The prediction, or the predictions page if it has since been deleted. */
   href() {
-    return app.route('predictions.show', { id: this.prediction()?.id() });
+    const id = this.prediction()?.id();
+    return id ? app.route('predictions.show', { id }) : app.route('predictions');
   }
 
   content() {

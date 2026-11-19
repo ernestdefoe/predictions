@@ -15,6 +15,7 @@
  */
 
 use ErnestDefoe\Predictions\Access\PredictionPolicy;
+use ErnestDefoe\Predictions\Access\ScopePredictionVisibility;
 use ErnestDefoe\Predictions\Api;
 use ErnestDefoe\Predictions\Console\TickCommand;
 use ErnestDefoe\Predictions\Http\PageContent;
@@ -49,14 +50,15 @@ return [
 
     new Extend\Locales(__DIR__.'/locale'),
 
-    // Predictions, who picked what and seasons are API resources. The leaderboard is a
-    // computed report (ranks, the viewer's own row, Oracles), so it is a plain JSON route.
+    // Predictions, who picked what, seasons and the leaderboard's standings.
     new Extend\ApiResource(Api\PredictionResource::class),
     new Extend\ApiResource(Api\PickResource::class),
     new Extend\ApiResource(Api\SeasonResource::class),
+    new Extend\ApiResource(Api\StandingResource::class),
 
-    (new Extend\Routes('api'))
-        ->get('/prediction-leaderboard', 'predictions.leaderboard', Api\LeaderboardController::class),
+    // A prediction is as visible as its discussion (or, standalone, to anyone who may view predictions).
+    (new Extend\ModelVisibility(Prediction::class))
+        ->scope(ScopePredictionVisibility::class),
 
     (new Extend\Policy())
         ->modelPolicy(Prediction::class, PredictionPolicy::class),

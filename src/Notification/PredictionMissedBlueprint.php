@@ -2,45 +2,11 @@
 
 namespace ErnestDefoe\Predictions\Notification;
 
-use ErnestDefoe\Predictions\Prediction;
-use Flarum\Database\AbstractModel;
-use Flarum\Notification\AlertableInterface;
-use Flarum\Notification\Blueprint\BlueprintInterface;
-use Flarum\User\User;
-
-/**
- * Alert: the member picked and missed. The subject is the prediction, which has an API resource
- * (Api\PredictionResource): a subject without one 500s every notification list.
- * No data, so a correction's sync() matches (and takes back) the earlier alert.
- */
-class PredictionMissedBlueprint implements BlueprintInterface, AlertableInterface
+/** Alert: the prediction is settled and the member's pick missed. */
+class PredictionMissedBlueprint extends PredictionBlueprint
 {
-    public function __construct(public Prediction $prediction)
-    {
-    }
-
-    public function getFromUser(): ?User
-    {
-        return null;
-    }
-
-    public function getSubject(): ?AbstractModel
-    {
-        return $this->prediction;
-    }
-
-    public function getData(): mixed
-    {
-        return null;
-    }
-
     public static function getType(): string
     {
         return 'predictionMissed';
-    }
-
-    public static function getSubjectModel(): string
-    {
-        return Prediction::class;
     }
 }

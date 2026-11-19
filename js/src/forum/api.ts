@@ -75,6 +75,8 @@ export interface BoardRow {
   hitRate: number;
   streak: number | null;
   bestStreak: number;
+  /** Named the season's Oracle (a finished season). */
+  oracle: boolean;
 }
 
 export interface Season {
@@ -86,15 +88,15 @@ export interface Season {
 
 export interface Board {
   season: Season | null;
-  currentSeasonId: number;
+  currentSeasonId: number | null;
   seasons: Season[];
   rows: BoardRow[];
   me: BoardRow | null;
-  oracles: Array<{ rank: number; points: number; user: Person }>;
+  oracles: BoardRow[];
 }
 
-export const t = (key: string, params: Record<string, any> = {}) => app.translator.trans(`ernestdefoe-predictions.forum.${key}`, params);
-export const tx = (key: string, params: Record<string, any> = {}) => extractText(t(key, params));
+export const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans(`ernestdefoe-predictions.forum.${key}`, params);
+export const tx = (key: string, params: Record<string, unknown> = {}) => extractText(t(key, params));
 
 export function predictionUrl(id: number): string {
   return app.forum.attribute<string>('baseUrl') + '/predictions/' + id;

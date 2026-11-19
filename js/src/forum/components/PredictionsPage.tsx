@@ -9,7 +9,7 @@ import Select from 'flarum/common/components/Select';
 import type Mithril from 'mithril';
 import PredictionCard, { fakeUser } from './PredictionCard';
 import { openForm, percent, t, tx, type Board, type BoardRow, type Prediction } from '../api';
-import { call, list, num } from '../data';
+import { board as fetchBoard, list, num } from '../data';
 
 /**
  * /predictions: the open ones (soonest lock first), the ones waiting on a
@@ -22,8 +22,8 @@ const TABS: Tab[] = ['open', 'locked', 'settled', 'leaderboard'];
 const PAGE = 20;
 
 /** Core components this page builds on, loaded through the registry: some live in lazy chunks. */
-export let PageStructure: any;
-export let IndexSidebar: any;
+export let PageStructure: typeof import('flarum/forum/components/PageStructure').default;
+export let IndexSidebar: typeof import('flarum/forum/components/IndexSidebar').default;
 
 export async function loadCore(): Promise<void> {
   const [structure, sidebar] = await Promise.all([
@@ -82,8 +82,8 @@ export default class PredictionsPage extends Page {
 
   loadBoard() {
     this.boardLoading = true;
-    call('GET', '/prediction-leaderboard', this.boardSeason ? { season: this.boardSeason.replace(/^s/, '') } : undefined)
-      .then((board: Board) => (this.board = board))
+    fetchBoard(this.boardSeason ? this.boardSeason.replace(/^s/, '') : undefined)
+      .then((loaded) => (this.board = loaded))
       .catch(() => {
         /* call() has already shown the error */
       })

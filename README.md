@@ -6,7 +6,7 @@ Members call it before it happens. A Flarum 2 extension for predictions about an
 
 ## What members get
 
-- **Three kinds of prediction.** Multiple choice (2 to 12 choices), yes or no, and **closest number**, where the nearest guess wins.
+- **Three kinds of prediction.** Multiple choice (2 to 12 choices), yes or no, and **closest number**, where the nearest guess wins. Once a number locks, its card shows how the guesses spread: count, average, median and a chart.
 - **A lock time.** Pick, change your pick or take it back until the lock; then picks close. The countdown is on every card.
 - **Hidden picks, if the creator wants.** Nobody sees how others picked, or the totals, until it locks. No following the crowd.
 - **Settling.** The creator says what happened (settling early also locks picks). A moderator can correct it, and everyone's points follow, or call it off: nobody gets points. Results in a season that has ended don't change.
@@ -61,9 +61,11 @@ The creator can edit their prediction while it's open, settle it once, and delet
 
 ## How it stays right
 
-- **Race-safe picks.** Every pick is judged against the lock time inside a database transaction that locks the prediction's row, so a pick at 7:59:59.999 against an 8:00 lock, or one that lands alongside a settle, is judged against the row as it is at that moment. One pick per member is also a unique key.
+- **Race-safe picks.** Every pick is judged against the lock time under a lock on the prediction and a database transaction that locks its row, so a pick at 7:59:59.999 against an 8:00 lock, or one that lands alongside a settle, is judged against the row as it is at that moment. One pick per member is also a unique key.
 - **Queued, idempotent scoring.** Settling writes the answer under the same lock and queues the scoring. The job runs only while the prediction is unscored, under the row lock, and rescoring rebuilds every pick and every affected season total from scratch. The scheduler catches anything a queue lost. Running any step twice changes nothing.
 - **A lean leaderboard.** Season totals live in their own table, rebuilt for exactly the members a prediction touched. The board is the same handful of queries for 5 rows or 100.
+- **Picks cost the same however many came before.** Counts move by one per pick; a number's stats are worked out once, when it locks.
+- **A JSON:API.** Predictions, picks, seasons and leaderboard standings are Flarum API resources (`/api/predictions`, `/api/prediction-picks`, `/api/prediction-seasons`, `/api/prediction-standings`).
 - **Nothing extra on other pages.** The forum bundle only wires things up (about 5 KB gzipped); the card, the pages and the forms are one chunk loaded when first needed. Discussion lists cost no queries; a discussion page costs one.
 
 ## Links

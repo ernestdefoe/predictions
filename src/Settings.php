@@ -6,7 +6,6 @@ final class Settings
 {
     public const PREFIX = 'ernestdefoe-predictions.';
 
-    public const NAV = self::PREFIX.'nav';
     public const BOLD_BONUS = self::PREFIX.'bold_bonus';
     public const ORACLE_COUNT = self::PREFIX.'oracle_count';
     public const ORACLE_GROUP = self::PREFIX.'oracle_group';

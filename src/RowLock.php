@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\ConnectionInterface;
+use LogicException;
 
 /**
  * One writer per prediction (or per season) at a time.
@@ -14,8 +15,8 @@ use Illuminate\Database\ConnectionInterface;
  * delete and scoring run also holds a cache lock named after the row. It never
  * waits: a request that finds it taken is told to try again (Refusal 409), not
  * left holding a PHP worker. Inside it, the work runs in a transaction and
- * re-reads its row with `lockForUpdate()`, which serialises writers on MySQL
- * and PostgreSQL even when the cache store can't lock.
+ * re-reads its row with `lockForUpdate()`, which also serialises writers on
+ * MySQL and PostgreSQL.
  */
 class RowLock
 {
@@ -36,7 +37,9 @@ class RowLock
     {
         $store = $this->cache->getStore();
         if (! $store instanceof LockProvider) {
-            return $this->db->transaction($work);
+            // Every cache store Flarum ships (file, database, redis, array) can lock. Without one,
+            // writes on SQLite would race, so refuse loudly instead of quietly running unlocked.
+            throw new LogicException('Predictions needs a cache store that supports locks.');
         }
 
         $lock = $store->lock('ernestdefoe-predictions.'.$name, self::SECONDS);

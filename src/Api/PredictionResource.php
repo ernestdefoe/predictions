@@ -31,8 +31,8 @@ use Tobyz\JsonApiServer\Pagination\Pagination;
  * one attached to a discussion. Every write is guarded here and checked again
  * under the prediction's RowLock where the answer can change in between.
  *
- * Input attributes are read whole by Editor (they depend on each other: the
- * kind decides whether choices or a unit apply), so their setters do nothing.
+ * Input fields validate and set their values like any resource; Editor then
+ * checks what depends on the whole row under its lock (see inputs()).
  *
  * @extends AbstractDatabaseResource<Prediction>
  */
@@ -62,7 +62,7 @@ class PredictionResource extends AbstractDatabaseResource
     public function scope(Builder $query, BaseContext $context): void
     {
         /** @var Context $context */
-        $query->visibleTo($context->getActor());
+        $query->whereVisibleTo($context->getActor());
     }
 
     public function endpoints(): array
@@ -109,19 +109,19 @@ class PredictionResource extends AbstractDatabaseResource
 
     public function fields(): array
     {
-        return [...$this->output(), ...$this->input(), ...$this->relationships()];
+        return [...$this->inputs(), ...$this->computed(), ...$this->relationships()];
     }
 
     /** @param Context $context */
     public function create(object $model, BaseContext $context): object
     {
-        return $this->editor->create($model, $context->getActor(), $this->attributes($context));
+        return $this->editor->create($model, $context->getActor());
     }
 
     /** @param Context $context */
     public function update(object $model, BaseContext $context): object
     {
-        return $this->editor->update($model, $context->getActor(), $this->attributes($context));
+        return $this->editor->update($model, $context->getActor());
     }
 
     /** @param Context $context */
@@ -130,29 +130,50 @@ class PredictionResource extends AbstractDatabaseResource
         $this->editor->delete($model, $context->getActor());
     }
 
-    /** @return list<Schema\Attribute> */
-    private function output(): array
-    {
-        // "kind" is the presenter's "type": JSON:API reserves `type` for the resource type.
-        $keys = ['kind', 'title', 'description', 'unit', 'tolerance', 'hidePicks', 'lockAt', 'status', 'picksVisible', 'picksCount',
-            'options', 'stats', 'answer', 'correctOptionId', 'settledAt', 'scored', 'counted', 'minPickers', 'myPick', 'url', 'createdAt', 'can'];
-        $writable = ['kind', 'title', 'description', 'unit', 'tolerance', 'hidePicks', 'lockAt', 'options'];
-
-        return array_map(function (string $key) use ($writable) {
-            $from = $key === 'kind' ? 'type' : $key;
-            $field = Schema\Attribute::make($key)->get(fn (Prediction $prediction, Context $context) => $this->cards->value($prediction, $context, $from));
-
-            return in_array($key, $writable, true) ? $field->writable()->set(fn () => null) : $field;
-        }, $keys);
-    }
-
-    /** @return list<Schema\Attribute> */
-    private function input(): array
+    /**
+     * What a member writes. Each field validates and sets its value; Editor then
+     * checks, under the row lock, what depends on the rest of the row (whether
+     * others have picked, whether the kind needs choices, the lock time's range).
+     *
+     * @return list<Schema\Attribute>
+     */
+    private function inputs(): array
     {
         return [
-            Schema\Attribute::make('discussionId')->writable()->set(fn () => null)->get(fn (Prediction $prediction) => $prediction->discussion_id),
-            Schema\Boolean::make('lockNow')->writableOnUpdate()->set(fn () => null)->get(fn () => null),
+            // JSON:API reserves `type` for the resource type, so the kind travels as `kind`.
+            Schema\Str::make('kind')->property('type')->requiredOnCreate()->writable()->in(Prediction::TYPES),
+            Schema\Str::make('title')->requiredOnCreate()->writable()->minLength(3)->maxLength(150)
+                ->set(fn (Prediction $prediction, string $value) => $prediction->title = Input::title($value)),
+            Schema\Str::make('description')->nullable()->writable()->maxLength(1000)
+                ->set(fn (Prediction $prediction, ?string $value) => $prediction->description = Input::description($value)),
+            Schema\Str::make('unit')->nullable()->writable()->maxLength(24)
+                ->set(fn (Prediction $prediction, ?string $value) => $prediction->unit = Input::unit($value)),
+            Schema\Number::make('tolerance')->nullable()->writable()->min(0)->max(1000000000)
+                ->set(fn (Prediction $prediction, ?float $value) => $prediction->tolerance = $value ?: null),
+            Schema\Boolean::make('hidePicks')->property('hide_picks')->writable(),
+            Schema\DateTime::make('lockAt')->property('lock_at')->requiredOnCreate()->writable(),
+            Schema\Arr::make('options')->nullable()->writable()
+                ->set(fn (Prediction $prediction, ?array $labels) => $prediction->pendingLabels = $labels === null ? null : Input::options($labels))
+                ->get(fn (Prediction $prediction, Context $context) => $this->cards->value($prediction, $context, 'options')),
+            Schema\Boolean::make('lockNow')->writableOnUpdate()->visible(false)
+                ->set(fn (Prediction $prediction, bool $now) => $prediction->lockNow = $now),
         ];
+    }
+
+    /**
+     * What depends on the viewer or on other rows, laid out a page at a time by Cards.
+     *
+     * @return list<Schema\Attribute>
+     */
+    private function computed(): array
+    {
+        $keys = ['status', 'picksVisible', 'picksCount', 'stats', 'answer', 'correctOptionId', 'settledAt', 'scored', 'counted',
+            'minPickers', 'myPick', 'url', 'createdAt', 'can'];
+
+        return array_map(
+            fn (string $key) => Schema\Attribute::make($key)->get(fn (Prediction $prediction, Context $context) => $this->cards->value($prediction, $context, $key)),
+            $keys,
+        );
     }
 
     /** @return list<Schema\Relationship\ToOne> */
@@ -160,19 +181,9 @@ class PredictionResource extends AbstractDatabaseResource
     {
         return [
             Schema\Relationship\ToOne::make('user')->type('users')->includable(),
-            Schema\Relationship\ToOne::make('discussion')->type('discussions')->includable(),
+            // Attached when it's opened, never moved after: Editor checks the member may attach it.
+            Schema\Relationship\ToOne::make('discussion')->type('discussions')->includable()->writableOnCreate()->nullable(),
         ];
-    }
-
-    /** @return array<string, mixed> */
-    private function attributes(Context $context): array
-    {
-        $attributes = (array) ($context->body()['data']['attributes'] ?? []);
-        if (array_key_exists('kind', $attributes)) {
-            $attributes['type'] = $attributes['kind'];
-        }
-
-        return $attributes;
     }
 
     /** The prediction read again through scope(), for the response. */

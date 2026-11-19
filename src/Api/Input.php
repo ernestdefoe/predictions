@@ -3,11 +3,10 @@
 namespace ErnestDefoe\Predictions\Api;
 
 use Carbon\Carbon;
-use Carbon\Exceptions\InvalidFormatException;
-use ErnestDefoe\Predictions\Prediction;
+use DateTimeInterface;
 use ErnestDefoe\Predictions\Refusal;
 
-/** Reading and checking what the prediction form sends. Every refusal names the field. */
+/** Cleaning and checking what the prediction form sends, beyond each field's own rules (lengths, types). Every refusal names what's wrong. */
 final class Input
 {
     public const MAX_OPTIONS = 12;
@@ -15,8 +14,9 @@ final class Input
 
     public static function title(mixed $value): string
     {
+        // The field allows 3 to 150 characters; spaces collapsed, it can be shorter than 3 again.
         $title = self::line($value);
-        if (mb_strlen($title) < 3 || mb_strlen($title) > 150) {
+        if (mb_strlen($title) < 3) {
             throw new Refusal('predictions_bad_title');
         }
 
@@ -25,22 +25,12 @@ final class Input
 
     public static function description(mixed $value): ?string
     {
+        // Lengths are the field's rule; this only tidies.
         $text = trim(str_replace("\r\n", "\n", is_string($value) ? $value : ''));
-        if (mb_strlen($text) > 1000) {
-            throw new Refusal('predictions_bad_description');
-        }
 
         return $text === '' ? null : $text;
     }
 
-    public static function type(mixed $value): string
-    {
-        if (! is_string($value) || ! in_array($value, Prediction::TYPES, true)) {
-            throw new Refusal('predictions_bad_type');
-        }
-
-        return $value;
-    }
 
     /** @return list<string> */
     public static function options(mixed $value): array
@@ -64,15 +54,10 @@ final class Input
         return array_values($labels);
     }
 
-    public static function lockAt(mixed $value): Carbon
+    /** A lock time at least a minute away and no more than two years. */
+    public static function lockAt(?DateTimeInterface $at): Carbon
     {
-        try {
-            $at = is_string($value) && $value !== '' ? Carbon::parse($value)->utc() : null;
-        } catch (InvalidFormatException) {
-            // Not a date: refused below like a missing one.
-            $at = null;
-        }
-
+        $at = $at ? Carbon::instance($at)->utc() : null;
         if (! $at || $at->lt(Carbon::now()->addMinute()) || $at->gt(Carbon::now()->addDays(self::MAX_DAYS))) {
             throw new Refusal('predictions_bad_lock');
         }
@@ -83,24 +68,10 @@ final class Input
     public static function unit(mixed $value): ?string
     {
         $unit = self::line($value);
-        if (mb_strlen($unit) > 24) {
-            throw new Refusal('predictions_bad_unit');
-        }
 
         return $unit === '' ? null : $unit;
     }
 
-    public static function tolerance(mixed $value): ?float
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-        if (! is_numeric($value) || (float) $value < 0 || (float) $value > 1e9) {
-            throw new Refusal('predictions_bad_tolerance');
-        }
-
-        return (float) $value ?: null;
-    }
 
     public static function number(mixed $value): ?float
     {

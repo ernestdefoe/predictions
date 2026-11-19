@@ -19,8 +19,7 @@ use Psr\Log\LoggerInterface;
  * 🚨 Idempotent and race-safe: it runs under the prediction's RowLock and
  * only while scored_at is empty. The settle request queues it; the scheduler
  * (predictions:tick) picks up any that a lost queue worker never ran. Two of
- * them at once: the second finds the lock taken and leaves it to the next tick,
- * or (on a store without locks) waits for the row and then sees scored_at.
+ * them at once: the second finds the lock taken and leaves it to the next tick.
  */
 class Scorer
 {
@@ -76,8 +75,12 @@ class Scorer
         $results = $this->results($prediction, $picks);
         $this->write($prediction, $results, $counted);
 
-        if ($prediction->type === Prediction::NUMBER && $prediction->voided_at === null) {
-            $prediction->stats = array_merge($prediction->stats ?? [], ['closest' => $this->closest($picks->all(), $results, (float) $prediction->answer_value)]);
+        if ($prediction->type === Prediction::NUMBER) {
+            // Every guess, the settler's included (they're on the chart), and the three closest (not the settler's).
+            $stats = Scoring::stats($all->pluck('value')->filter(fn ($v) => $v !== null)->map(fn ($v) => (float) $v)->values()->all());
+            $prediction->stats = $stats && $prediction->voided_at === null
+                ? $stats + ['closest' => $this->closest($picks->all(), $results, (float) $prediction->answer_value)]
+                : $stats;
         }
         $prediction->scored_at = Carbon::now();
         $prediction->counted = $counted;

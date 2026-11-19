@@ -28,7 +28,7 @@ return [
             // Set once, by whichever of the scheduler or a settle gets there first.
             $table->dateTime('locked_at')->nullable();
             $table->unsignedInteger('picks_count')->default(0);
-            // Number type: count, average, median, range and a histogram, kept with every pick.
+            // Number type: count, average, median, range and a histogram, worked out once picks close.
             $table->json('stats')->nullable();
             $table->unsignedInteger('correct_option_id')->nullable();
             $table->double('answer_value')->nullable();

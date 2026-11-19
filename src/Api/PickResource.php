@@ -40,7 +40,7 @@ class PickResource extends AbstractDatabaseResource
     public function scope(Builder $query, BaseContext $context): void
     {
         /** @var Context $context */
-        $visible = Prediction::query()->visibleTo($context->getActor())
+        $visible = Prediction::query()->whereVisibleTo($context->getActor())
             ->where(fn (Builder $q) => $q->where('predictions.hide_picks', false)
                 ->orWhere('predictions.lock_at', '<=', Carbon::now())
                 ->orWhereNotNull('predictions.settled_at'))

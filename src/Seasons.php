@@ -6,7 +6,9 @@ use Carbon\Carbon;
 use ErnestDefoe\Predictions\Award\OracleBadge;
 use Flarum\Group\Group;
 use Flarum\Settings\SettingsRepositoryInterface;
+use Flarum\User\Event\GroupsChanged;
 use Flarum\User\User;
+use Illuminate\Contracts\Events\Dispatcher;
 
 /**
  * Ending a season: the top predictors become its Oracles, the board starts
@@ -14,12 +16,16 @@ use Flarum\User\User;
  */
 class Seasons
 {
+    /** The most Oracles a season names (the admin field's limit, held here too). */
+    public const MAX_ORACLES = 25;
+
     public const NEVER_ORACLE_GROUPS = [Group::ADMINISTRATOR_ID, Group::GUEST_ID, Group::MEMBER_ID, Group::MODERATOR_ID];
 
     public function __construct(
         private readonly SettingsRepositoryInterface $settings,
         private readonly OracleBadge $badge,
         private readonly RowLock $lock,
+        private readonly Dispatcher $events,
     ) {
     }
 
@@ -32,7 +38,7 @@ class Seasons
 
             $top = Score::query()->where('season_id', $current->id)->where('points', '>', 0)
                 ->orderByDesc('points')->orderByDesc('hits')->orderBy('settled')->orderBy('user_id')
-                ->limit(max(0, (int) $this->settings->get(Settings::ORACLE_COUNT)))
+                ->limit(min(self::MAX_ORACLES, max(0, (int) $this->settings->get(Settings::ORACLE_COUNT))))
                 ->get();
 
             if ($top->isNotEmpty()) {
@@ -68,33 +74,46 @@ class Seasons
      */
     private function award(Season $season, array $oracles): void
     {
-        $users = User::query()->whereIn('id', $oracles ?: [0])->get();
-
         // Stored as "g5" by the admin select (letters keep its options in order); a bare "5" works too.
         $groupId = (int) preg_replace('/\D+/', '', (string) $this->settings->get(Settings::ORACLE_GROUP));
         $group = in_array($groupId, self::NEVER_ORACLE_GROUPS, true) ? null : Group::query()->find($groupId);
         if ($group) {
-            // Memberships we gave in earlier seasons.
-            $ours = Award::query()->where('season_id', '<>', $season->id)->where('group_id', $group->id)->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->all();
-
-            $leaving = array_values(array_diff($ours, $oracles));
-            if ($leaving) {
-                $group->users()->detach($leaving);
-                Award::query()->where('group_id', $group->id)->whereIn('user_id', $leaving)->update(['group_id' => null]);
-            }
-
-            $members = $group->users()->whereIn('users.id', $oracles ?: [0])->pluck('users.id')->map(fn ($id) => (int) $id)->all();
-            $joining = array_values(array_diff($oracles, $members));
-            if ($joining) {
-                $group->users()->attach($joining);
-            }
-            // Ours if we add them now, or we added them before and they stay; not if an admin did.
-            $recorded = array_values(array_unique([...$joining, ...array_intersect($oracles, $ours)]));
-            if ($recorded) {
-                Award::query()->where('season_id', $season->id)->whereIn('user_id', $recorded)->update(['group_id' => $group->id]);
-            }
+            $this->moveGroup($group, $season, $oracles);
         }
 
-        $this->badge->award($season, $users->values()->all());
+        $this->badge->award($season, User::query()->whereIn('id', $oracles ?: [0])->get()->all());
+    }
+
+    /** @param list<int> $oracles */
+    private function moveGroup(Group $group, Season $season, array $oracles): void
+    {
+        // Memberships we gave in earlier seasons.
+        $ours = Award::query()->where('season_id', '<>', $season->id)->where('group_id', $group->id)->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->all();
+        $leaving = array_values(array_diff($ours, $oracles));
+        $members = $group->users()->whereIn('users.id', $oracles ?: [0])->pluck('users.id')->map(fn ($id) => (int) $id)->all();
+        $joining = array_values(array_diff($oracles, $members));
+
+        // Their groups as they were, for GroupsChanged (one query for everyone who moves).
+        $moving = User::query()->whereIn('id', [...$leaving, ...$joining] ?: [0])->with('groups')->get();
+        $before = $moving->mapWithKeys(fn (User $user) => [$user->id => $user->groups->all()]);
+
+        if ($leaving) {
+            $group->users()->detach($leaving);
+            Award::query()->where('group_id', $group->id)->whereIn('user_id', $leaving)->update(['group_id' => null]);
+        }
+        if ($joining) {
+            $group->users()->attach($joining);
+        }
+        // Ours if we add them now, or we added them before and they stay; not if an admin did.
+        $recorded = array_values(array_unique([...$joining, ...array_intersect($oracles, $ours)]));
+        if ($recorded) {
+            Award::query()->where('season_id', $season->id)->whereIn('user_id', $recorded)->update(['group_id' => $group->id]);
+        }
+
+        // Other extensions (and core's caches) hear about every membership this changed.
+        foreach ($moving as $user) {
+            $user->unsetRelation('groups');
+            $this->events->dispatch(new GroupsChanged($user, $before[$user->id]));
+        }
     }
 }
