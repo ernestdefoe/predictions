@@ -14,11 +14,14 @@ import { lookup, num, pickers } from '../data';
 
 type PickRow = MyPick & { user: Person };
 
+const PICKS_PAGE = 100;
+
 export default class PredictionPage extends Page {
   prediction: Prediction | null = null;
   missing = false;
   picks: PickRow[] | null = null;
   morePicks = false;
+  nextPicks = 0;
   loadingPicks = false;
   picksFor = '';
 
@@ -50,10 +53,12 @@ export default class PredictionPage extends Page {
   /** A page of who picked what (100 at a time), from the start or after the ones shown. */
   loadPicks(p: Prediction, offset: number) {
     this.loadingPicks = true;
-    pickers(p.id, offset)
+    pickers(p.id, offset, PICKS_PAGE)
       .then(({ rows, more }) => {
         this.picks = offset ? [...(this.picks || []), ...rows] : rows;
         this.morePicks = more;
+        // From the server's paging, not the rows kept (a member the viewer can't see is left out).
+        this.nextPicks = offset + PICKS_PAGE;
       })
       .catch(() => {
         /* call() has already shown the error */
@@ -92,7 +97,7 @@ export default class PredictionPage extends Page {
         <h3>{t('single.who')}</h3>
         {p.type === 'number' ? this.guesses(p, this.picks) : p.options.map((option, i) => this.group(p, option, i, this.picks!))}
         {this.morePicks && (
-          <Button className="Button PredictionWho-more" loading={this.loadingPicks} onclick={() => this.loadPicks(p, this.picks!.length)}>
+          <Button className="Button PredictionWho-more" loading={this.loadingPicks} onclick={() => this.loadPicks(p, this.nextPicks)}>
             {t('single.more')}
           </Button>
         )}

@@ -32,9 +32,13 @@ class Scores
         $this->changed();
     }
 
+    /**
+     * After the rebuild commits (straight away outside a transaction): bumped any earlier, a
+     * board read in between would cache the old totals under the new version.
+     */
     private function changed(): void
     {
-        $this->cache->forever(self::VERSION, Str::random(8));
+        Score::query()->getConnection()->afterCommit(fn () => $this->cache->forever(self::VERSION, Str::random(8)));
     }
 
     /** @param list<int> $userIds */

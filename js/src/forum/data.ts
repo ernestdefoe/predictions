@@ -199,11 +199,11 @@ export function remove(id: number): Promise<void> {
 }
 
 /** Who picked what, best results first, once picks are out in the open: a page at a time. */
-export function pickers(id: number, offset = 0): Promise<{ rows: Array<MyPick & { user: Person }>; more: boolean }> {
+export function pickers(id: number, offset = 0, limit = 100): Promise<{ rows: Array<MyPick & { user: Person }>; more: boolean }> {
   return call<ApiPayloadPlural>('GET', '/prediction-picks', {
     filter: { prediction: id },
     include: 'user',
-    page: { offset, limit: 100, total: 0 },
+    page: { offset, limit, total: 0 },
   }).then((doc) => ({
     rows: app.store
       .pushPayload<PickModel[]>(doc)

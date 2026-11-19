@@ -231,7 +231,7 @@ export default class PredictionModal extends FormModal<Attrs> {
   onsubmit(e: SubmitEvent) {
     e.preventDefault();
     const editing = this.attrs.prediction;
-    const body: Record<string, any> = {
+    const body: Record<string, unknown> = {
       title: this.question,
       description: this.description,
     };
@@ -250,7 +250,7 @@ export default class PredictionModal extends FormModal<Attrs> {
     }
     if (!editing && this.attrs.discussionId) body.discussionId = this.attrs.discussionId;
     // Unchanged lock time on an edit: don't send it, so an hour-old form can't trip the "in the future" check.
-    if (editing && body.lockAt && new Date(body.lockAt).getTime() === new Date(editing.lockAt).getTime()) delete body.lockAt;
+    if (editing && typeof body.lockAt === 'string' && new Date(body.lockAt).getTime() === new Date(editing.lockAt).getTime()) delete body.lockAt;
 
     this.loading = true;
     save(editing ? editing.id : null, body)

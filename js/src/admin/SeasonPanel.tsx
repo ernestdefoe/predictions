@@ -5,7 +5,7 @@ import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import extractText from 'flarum/common/utils/extractText';
 import type Mithril from 'mithril';
 
-const t = (key: string, params: Record<string, any> = {}) => app.translator.trans(`ernestdefoe-predictions.admin.season.${key}`, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans(`ernestdefoe-predictions.admin.season.${key}`, params);
 
 interface Season {
   id: number;
